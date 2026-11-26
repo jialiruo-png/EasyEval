@@ -1,5 +1,8 @@
 # 开发计划
 
+**2026-11-26 草稿联调验收**　草稿和三条预览已经通过 PostgreSQL 17 与 HTTP 集成测试。第一步支持在选数据集前保存；预览回写使用本次获取或重试返回的 executionId，配置变化、重试、草稿关闭后旧执行不能覆盖新状态。第 4 步的两条试评分目前只实现领域和内存逻辑。真实执行的下一次验收需从一条 query 取得被测 Agent 的回答与 Trace，再用已发布的裁判版本评分，并从结果 API 读回同一条样本。
+
+
 **当前数据库决策（2026-11-26）**　平台后端统一使用 PostgreSQL 17，开发和多人部署共用同一套迁移。历史日志中的 SQLite 记载对应旧实现。当前资源版本、归档、数据集行、服务端会话和评分结果均已接入 PG。后续草稿、队列、调度和运行索引使用同一个 PG 库，按个人账号隔离。
 
 **状态（2026-11-26 草稿与预览 HTTP 入口已交付）**：P1 实机验证仍待 Docker／凭据／模型配置就绪；草稿与预览的领域契约、PostgreSQL 迁移版本 3、持久化适配层与 HTTP 入口均已交付（契约见下）。`POST /api/drafts`、`GET /api/drafts`、`GET/PATCH /api/drafts/:draftId`、`POST /api/drafts/:draftId/cancel`、`POST /api/drafts/:draftId/confirm`、`GET/POST /api/drafts/:draftId/previews`、`POST /api/drafts/:draftId/previews/:sampleId/transition` 与 `POST /api/drafts/:draftId/previews/:sampleId/retry` 已挂到 `node:http`：身份只从服务端会话取得，请求体自报 `ownerAccountId` 不参与鉴权；未登录 401、越权与不存在统一 404、revision 或草稿 ID 冲突 409、形状错误 400、领域校验与非法预览流转 422，幂等重放以 `x-replayed: true` 暴露，响应 `no-store`。预览列表先核对草稿归属，最多三条与签名复用、配置变化丢弃旧结果、按条重试均沿用领域契约。本轮单元测试与类型检查通过；新增 PostgreSQL 集成子场景因本机 5432 端口拒绝连接而未执行，待数据库恢复后补跑。试评分（最多两条）缓存领域契约与内存实现亦已交付：按账号＋草稿＋样本建条目，规则版本变化只失效评分、场景／数据集／查询列／映射／样本变化同时失效 Agent 复用，同签名复用、按条状态与重试，只存评分结果与 Trace 引用、不写任务版本与正式运行。下一增量可推进试评分的持久化与 HTTP 入口，或 P3/P4 向导前端骨架。本轮不接 Runner、调度与真实登录，不改变已确认产品行为。

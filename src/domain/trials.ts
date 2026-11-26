@@ -11,7 +11,7 @@
  *
  * 本层只提供纯逻辑与内存实现。评估器调用、Runner、HTTP 与持久化留给后续增量。
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   deepFreeze,
   stableStringify,
@@ -47,6 +47,7 @@ export interface TrialScoreEntry {
   readonly agentSignature: string;
   readonly status: TrialStatus;
   readonly attempts: number;
+  readonly executionId: string;
   readonly result?: Readonly<TrialScoreResult>;
   readonly reason?: string;
   readonly traceRef?: string;
@@ -127,6 +128,7 @@ export interface TrialAcquisition {
 }
 
 export interface MarkTrialInput {
+  readonly executionId: string;
   readonly result?: TrialScoreResult;
   readonly reason?: string;
   readonly traceRef?: string;
@@ -249,7 +251,7 @@ export class TrialScoreManager {
             entry: existing,
             created: false,
             agentReusable: Boolean(reusable),
-            agentRunRequired: !reusable,
+            agentRunRequired: !reusable && existing.status !== 'succeeded',
           },
           replayed: true,
         };
@@ -272,6 +274,7 @@ export class TrialScoreManager {
       agentSignature,
       status: 'pending',
       attempts: 1,
+      executionId: randomUUID(),
       createdAt: at,
       updatedAt: at,
     };
@@ -289,14 +292,14 @@ export class TrialScoreManager {
 
   /** 评分状态流转；成功时必须提供可展示的结果，失败可带原因与 Trace 引用。 */
   mark(ownerAccountId: string | undefined, draftId: string, sampleId: string,
-    status: TrialStatus, detail: MarkTrialInput = {}): TrialResult<TrialScoreEntry> {
-    const draft = this.drafts.get(ownerAccountId, draftId);
-    if (!draft) return failed(issue('DRAFT_NOT_FOUND', 'id', '草稿不存在或不属于当前账号'));
-    if (draft.status === 'canceled' && status !== 'canceled') {
-      return failed(issue('DRAFT_CANCELED', 'id', '草稿已取消，不能再流转试评分'));
-    }
-    const entry = this.requireCurrent(ownerAccountId, draft, sampleId);
+    status: TrialStatus, detail: MarkTrialInput): TrialResult<TrialScoreEntry> {
+    const active = this.requireActiveDraft(ownerAccountId, draftId);
+    if (!active.ok) return active;
+    const entry = this.requireCurrent(ownerAccountId, active.value, sampleId);
     if (!entry.ok) return entry;
+    if (detail?.executionId !== entry.value.executionId) {
+      return failed(issue('TRIAL_TRANSITION', 'executionId', '试评分执行已被替换'));
+    }
     const allowed: Record<TrialStatus, readonly TrialStatus[]> = {
       pending: ['running', 'succeeded', 'failed', 'canceled'],
       running: ['succeeded', 'failed', 'canceled'],
@@ -342,6 +345,7 @@ export class TrialScoreManager {
       ...entry.value,
       status: 'pending',
       attempts: entry.value.attempts + 1,
+      executionId: randomUUID(),
       result: undefined,
       reason: undefined,
       traceRef: undefined,
@@ -399,6 +403,7 @@ export class TrialScoreManager {
   }
 
   private isCurrent(entry: TrialScoreEntry, draft: DraftRecord, sampleId: string): boolean {
+    if (draft.status === 'confirmed' && (entry.status === 'pending' || entry.status === 'running')) return false;
     if (!draft.sampleIds.slice(0, MAX_TRIAL_SAMPLES).includes(sampleId)) return false;
     const agentSignature = draftPreviewSignature(draft, sampleId);
     return entry.agentSignature === agentSignature

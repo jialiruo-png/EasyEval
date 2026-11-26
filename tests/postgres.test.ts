@@ -297,8 +297,8 @@ test('PostgreSQL 平台接口', async (t) => {
     const acquired = await drafts.acquirePreview('A', 'draft:pg-1', 'R000001');
     assert.equal(acquired.ok, true);
     assert.ok(acquired.ok && acquired.value.created === true && acquired.value.entry.status === 'pending');
-    assert.equal((await drafts.markPreview('A', 'draft:pg-1', 'R000001', 'running')).ok, true);
-    const done = await drafts.markPreview('A', 'draft:pg-1', 'R000001', 'succeeded', { traceRef: 'trace-pg-1' });
+    assert.equal((await drafts.markPreview('A', 'draft:pg-1', 'R000001', 'running', { executionId: acquired.value.entry.executionId })).ok, true);
+    const done = await drafts.markPreview('A', 'draft:pg-1', 'R000001', 'succeeded', { executionId: acquired.value.entry.executionId, traceRef: 'trace-pg-1' });
     assert.equal(done.ok, true);
     assert.ok(done.ok && done.value.status === 'succeeded' && done.value.traceRef === 'trace-pg-1');
     const reused = await drafts.acquirePreview('A', 'draft:pg-1', 'R000001');
@@ -308,7 +308,7 @@ test('PostgreSQL 平台接口', async (t) => {
 
     const failed = await drafts.acquirePreview('A', 'draft:pg-1', 'R000002');
     assert.equal(failed.ok, true);
-    assert.equal((await drafts.markPreview('A', 'draft:pg-1', 'R000002', 'failed', { reason: 'trace 延迟' })).ok, true);
+    assert.equal((await drafts.markPreview('A', 'draft:pg-1', 'R000002', 'failed', { executionId: failed.value.entry.executionId, reason: 'trace 延迟' })).ok, true);
     const retried = await drafts.retryPreview('A', 'draft:pg-1', 'R000002');
     assert.equal(retried.ok, true);
     assert.ok(retried.ok && retried.value.status === 'pending' && retried.value.attempts === 2);
@@ -358,7 +358,7 @@ test('PostgreSQL 平台接口', async (t) => {
       const reader = postgresDrafts(reopened);
       assert.equal((await reader.get('A', 'draft:pg-1'))?.status, 'confirmed');
       assert.equal((await reader.get('B', 'draft:pg-1')), undefined);
-      assert.equal((await reader.listPreviews('A', 'draft:pg-1'))[0]?.status, 'pending');
+      assert.equal((await reader.listPreviews('A', 'draft:pg-1'))[0]?.status, 'canceled');
       assert.deepEqual(await reader.list('B'), []);
       assert.ok((await reader.list('A')).length === 2);
       const reopenReplay = await reader.confirm('A', 'draft:pg-1', confirmInput);
@@ -407,17 +407,20 @@ test('PostgreSQL 平台接口', async (t) => {
 
     const draftId = 'draft:http-1';
     const createBody = {
-      id: draftId, name: 'HTTP 草稿', step: 1, scenario, dataset, rule,
+      id: draftId, name: 'HTTP 草稿', step: 1, scenario,
+      schedule: { enabled: true, timezone: 'Asia/Shanghai', cron: '0 9 * * *' },
       ownerAccountId: 'B',
       mappings: [{ placeholder: '{{query}}', source: 'dataset', path: 'query' }],
     };
     assert.equal((await req('POST', 'drafts', undefined, createBody)).status, 401);
+    const before = (await req('GET', 'drafts', a)).json.total;
     const created = await req('POST', 'drafts', a, createBody);
     assert.equal(created.status, 201);
     assert.equal(created.json.ownerAccountId, 'A');
     assert.equal(created.cacheControl, 'no-store');
     const list = await req('GET', 'drafts', a);
-    assert.equal(list.json.total, 1);
+    assert.equal(list.json.total, before + 1);
+    assert.ok(list.json.items.some((d: { id: string }) => d.id === draftId));
     assert.deepEqual((await req('GET', 'drafts', b)).json.items, []);
     const missing = await req('GET', 'drafts/draft%3Anot-exist', a);
     const other = await req('GET', 'drafts/' + encodeURIComponent(draftId), b);
@@ -425,10 +428,11 @@ test('PostgreSQL 平台接口', async (t) => {
     assert.deepEqual(other.json, missing.json);
 
     const path = 'drafts/' + encodeURIComponent(draftId);
+    assert.deepEqual((await req('GET', path, a)).json.sampleIds, []);
     const stale = await req('PATCH', path, a, { expectedRevision: 9, step: 2 });
     assert.equal(stale.status, 409);
     assert.equal(stale.json.code, 'REVISION_CONFLICT');
-    const updated = await req('PATCH', path, a, { expectedRevision: 1, step: 2 });
+    const updated = await req('PATCH', path, a, { expectedRevision: 1, step: 2, dataset, rule });
     assert.equal(updated.status, 200);
     assert.equal(updated.json.revision, 2);
 
@@ -442,12 +446,20 @@ test('PostgreSQL 平台接口', async (t) => {
     assert.equal(reused.json.key, first.json.key);
     assert.equal((await req('GET', previewPath, a)).json.total, 1);
     assert.equal((await req('GET', previewPath, b)).status, 404);
-    assert.equal((await req('POST', previewPath + '/R000001/transition', a, { status: 'running' })).status, 200);
+    assert.equal((await req('POST', previewPath + '/R000001/transition', a, { executionId: first.json.executionId, status: 'running' })).status, 200);
     assert.equal((await req('POST', previewPath + '/R000001/transition', a,
-      { status: 'failed', reason: 'trace 延迟' })).status, 200);
+      { executionId: first.json.executionId, status: 'failed', reason: 'trace 延迟' })).status, 200);
     const retried = await req('POST', previewPath + '/R000001/retry', a);
     assert.equal(retried.status, 200);
     assert.equal(retried.json.attempts, 2);
+
+    const missingExecution = await req('POST', previewPath + '/R000001/transition', a, { status: 'succeeded' });
+    assert.equal(missingExecution.status, 400);
+    const staleCallback = await req('POST', previewPath + '/R000001/transition', a, {
+      status: 'succeeded', executionId: first.json.executionId, traceRef: 'old-trace',
+    });
+    assert.equal(staleCallback.status, 409);
+    assert.equal((await req('GET', previewPath, a)).json.items[0].status, 'pending');
 
     const confirm = {
       taskRef: { id: 'http-draft-task', version: 'v1' }, name: 'HTTP 确认任务',
@@ -456,6 +468,7 @@ test('PostgreSQL 平台接口', async (t) => {
     const confirmed = await req('POST', path + '/confirm', a, confirm);
     assert.equal(confirmed.status, 200);
     assert.equal(confirmed.json.sourceDraftId, draftId);
+    assert.deepEqual(confirmed.json.binding.schedule, createBody.schedule);
     const confirmReplay = await req('POST', path + '/confirm', a, confirm);
     assert.equal(confirmReplay.replayed, 'true');
     assert.deepEqual(confirmReplay.json, confirmed.json);

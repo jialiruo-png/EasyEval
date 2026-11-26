@@ -194,9 +194,9 @@ test('预览 HTTP：获取复用、列表、流转与重试，越权统一 404',
 
   const sample = base + '/R1';
   assert.equal((await request('POST', sample + '/transition', { token: tokenA, body: { status: 'weird' } })).status, 400);
-  assert.equal((await request('POST', sample + '/transition', { token: tokenA, body: { status: 'running' } })).status, 200);
+  assert.equal((await request('POST', sample + '/transition', { token: tokenA, body: { executionId: first.body.executionId, status: 'running' } })).status, 200);
   assert.equal((await request('POST', sample + '/transition', {
-    token: tokenA, body: { status: 'failed', reason: 'trace 延迟' },
+    token: tokenA, body: { executionId: first.body.executionId, status: 'failed', reason: 'trace 延迟' },
   })).status, 200);
   const retried = await request('POST', sample + '/retry', { token: tokenA });
   assert.equal(retried.status, 200);

@@ -9,12 +9,14 @@
  *    与查询映射构成；签名相同复用原条目，配置变化即丢弃旧结果；
  *  - 预览只保存状态与可选 trace 引用，不保存 Agent 输出与评分。
  *
- * 本层只提供纯逻辑与内存实现。PostgreSQL 落盘、HTTP、Runner 与真实登录留给后续增量。
+ * PostgreSQL 与 HTTP 适配器复用本层规则。Runner 负责实际执行预览。
  */
 import { createHash, randomUUID } from 'node:crypto';
 import {
   deepFreeze,
   stableStringify,
+  validateSchedule,
+  type ScheduleConfig,
   type ResourceCatalog,
   type VariableMapping,
   type VersionRef,
@@ -35,9 +37,10 @@ export interface DraftRecord {
   readonly step: DraftStep;
   readonly name?: string;
   readonly scenario: Readonly<VersionRef>;
-  readonly dataset: Readonly<VersionRef>;
+  readonly dataset?: Readonly<VersionRef>;
   readonly rule?: Readonly<VersionRef>;
-  readonly queryColumn: string;
+  readonly queryColumn?: string;
+  readonly schedule?: Readonly<ScheduleConfig>;
   readonly sampleIds: readonly string[];
   readonly mappings: readonly VariableMapping[];
   readonly status: DraftStatus;
@@ -61,11 +64,17 @@ export interface DraftConfirmation {
     scenario: Readonly<VersionRef>;
     dataset: Readonly<VersionRef>;
     rule: Readonly<VersionRef>;
-    schedule: Readonly<{ enabled: false; timezone: 'Asia/Shanghai' }>;
+    schedule: Readonly<ScheduleConfig>;
     variableMappings: readonly VariableMapping[];
   }>;
   readonly queryColumn: string;
   readonly sampleIds: readonly string[];
+}
+
+export interface PreviewCompletion {
+  executionId: string;
+  reason?: string;
+  traceRef?: string;
 }
 
 export interface PreviewEntry {
@@ -77,6 +86,7 @@ export interface PreviewEntry {
   readonly signature: string;
   readonly status: PreviewStatus;
   readonly attempts: number;
+  readonly executionId: string;
   readonly reason?: string;
   readonly traceRef?: string;
   readonly createdAt: string;
@@ -108,7 +118,6 @@ export type DraftResult<T> =
 
 export interface DraftStore {
   save(record: DraftRecord): DraftRecord;
-  peek(id: string): DraftRecord | undefined;
   get(id: string, accountId: string | undefined): DraftRecord | undefined;
   list(accountId: string | undefined): DraftRecord[];
 }
@@ -126,18 +135,13 @@ export class InMemoryDraftStore implements DraftStore {
 
   save(record: DraftRecord): DraftRecord {
     const frozen = deepFreeze(structuredClone(record));
-    this.byId.set(record.id, frozen);
+    this.byId.set(JSON.stringify([record.ownerAccountId, record.id]), frozen);
     return frozen;
-  }
-
-  peek(id: string): DraftRecord | undefined {
-    return this.byId.get(id);
   }
 
   get(id: string, accountId: string | undefined): DraftRecord | undefined {
     if (!accountId) return undefined;
-    const record = this.byId.get(id);
-    return record?.ownerAccountId === accountId ? record : undefined;
+    return this.byId.get(JSON.stringify([accountId, id]));
   }
 
   list(accountId: string | undefined): DraftRecord[] {
@@ -182,9 +186,10 @@ export interface CreateDraftInput {
   step?: DraftStep;
   name?: string;
   scenario: VersionRef;
-  dataset: VersionRef;
+  dataset?: VersionRef;
   rule?: VersionRef;
   queryColumn?: string;
+  schedule?: ScheduleConfig;
   sampleIds?: string[];
   mappings?: VariableMapping[];
 }
@@ -197,6 +202,7 @@ export interface UpdateDraftInput {
   dataset?: VersionRef;
   rule?: VersionRef;
   queryColumn?: string;
+  schedule?: ScheduleConfig;
   sampleIds?: string[];
   mappings?: VariableMapping[];
 }
@@ -277,12 +283,16 @@ export function draftPreviewSignature(
   const payload = {
     draftId: draft.id,
     scenario: cloneRef(draft.scenario),
-    dataset: cloneRef(draft.dataset),
+    dataset: draft.dataset ? cloneRef(draft.dataset) : null,
     queryColumn: draft.queryColumn,
     sampleId,
     mappings: [...mappings].sort((a, b) => stableStringify(a).localeCompare(stableStringify(b))),
   };
   return createHash('sha256').update(stableStringify(payload), 'utf8').digest('hex');
+}
+
+function inactiveDraft(draft: DraftRecord) {
+  return failed(issue(draft.status === 'confirmed' ? 'DRAFT_CONFIRMED' : 'DRAFT_CANCELED', 'id', '草稿不在编辑中'));
 }
 
 export function isDraftExpired(draft: DraftRecord, now: () => string): boolean {
@@ -319,23 +329,25 @@ export class DraftManager {
   create(input: CreateDraftInput): DraftResult<DraftRecord> {
     const problems: DraftIssue[] = [];
     if (!text(input?.ownerAccountId)) problems.push(issue('INVALID_INPUT', 'ownerAccountId', '账号不能为空'));
+    if (!input) return failed(issue('INVALID_INPUT', 'draft', '需要草稿配置'));
     const draftId = input.id ?? `${DRAFT_ID_PREFIX}${randomUUID()}`;
     if (!text(draftId) || !draftId.startsWith(DRAFT_ID_PREFIX) || draftId.length > 160) {
       problems.push(issue('INVALID_INPUT', 'id', `草稿 ID 必须以 ${DRAFT_ID_PREFIX} 开头`));
     }
     if (!validRef(input?.scenario)) problems.push(issue('INVALID_INPUT', 'scenario', '场景版本引用无效'));
-    if (!validRef(input?.dataset)) problems.push(issue('INVALID_INPUT', 'dataset', '数据集版本引用无效'));
+    if (input.dataset !== undefined && !validRef(input.dataset)) problems.push(issue('INVALID_INPUT', 'dataset', '数据集版本引用无效'));
     if (input.rule !== undefined && !validRef(input.rule)) problems.push(issue('INVALID_INPUT', 'rule', '规则版本引用无效'));
     if (input.step !== undefined && ![1, 2, 3, 4].includes(input.step)) {
       problems.push(issue('INVALID_INPUT', 'step', '步骤必须是 1 至 4'));
     }
+    const scheduleIssue = input.schedule === undefined ? undefined : validateSchedule(input.schedule);
+    if (scheduleIssue) problems.push(scheduleIssue);
     problems.push(...validateMappings(input.mappings, 'mappings'));
     if (problems.length > 0) return failed(...problems);
-    if (this.store.peek(draftId)) return failed(issue('ID_CONFLICT', 'id', '草稿 ID 已被占用'));
-    if (!validRef(input.scenario) || !validRef(input.dataset)) return failed(issue('INVALID_INPUT', 'ref', '版本引用无效'));
+    if (this.store.get(draftId, input.ownerAccountId)) return failed(issue('ID_CONFLICT', 'id', '草稿 ID 已被占用'));
 
     const binding = this.validateBinding(input.ownerAccountId, input.scenario, input.dataset,
-      input.rule, input.queryColumn, input.sampleIds);
+      input.rule, input.queryColumn, input.sampleIds, input.step ?? 1);
     if (!binding.ok) return binding;
     const createdAt = this.now();
     const expiresAt = new Date(Date.parse(createdAt) + this.ttlMs).toISOString();
@@ -346,7 +358,8 @@ export class DraftManager {
       step: input.step ?? 1,
       ...(text(input.name) ? { name: input.name.trim() } : {}),
       scenario: cloneRef(input.scenario),
-      dataset: cloneRef(input.dataset),
+      ...(input.dataset ? { dataset: cloneRef(input.dataset) } : {}),
+      ...(input.schedule ? { schedule: { ...input.schedule } } : {}),
       ...(input.rule ? { rule: cloneRef(input.rule) } : {}),
       queryColumn: binding.value.queryColumn,
       sampleIds: binding.value.sampleIds,
@@ -382,6 +395,8 @@ export class DraftManager {
     if (input.step !== undefined && ![1, 2, 3, 4].includes(input.step)) {
       problems.push(issue('INVALID_INPUT', 'step', '步骤必须是 1 至 4'));
     }
+    const scheduleIssue = input.schedule === undefined ? undefined : validateSchedule(input.schedule);
+    if (scheduleIssue) problems.push(scheduleIssue);
     problems.push(...validateMappings(input.mappings, 'mappings'));
     if (problems.length > 0) return failed(...problems);
 
@@ -390,14 +405,15 @@ export class DraftManager {
       dataset: input.dataset ?? current.dataset,
       rule: input.rule === undefined ? current.rule : input.rule,
     };
-    if (!validRef(nextRefs.scenario) || !validRef(nextRefs.dataset)
+    if (!validRef(nextRefs.scenario) || (nextRefs.dataset !== undefined && !validRef(nextRefs.dataset))
       || (nextRefs.rule !== undefined && !validRef(nextRefs.rule))) {
       return failed(issue('INVALID_INPUT', 'ref', '版本引用无效'));
     }
+    const sameDataset = current.dataset?.id === nextRefs.dataset?.id
+      && current.dataset?.version === nextRefs.dataset?.version;
     const binding = this.validateBinding(current.ownerAccountId, nextRefs.scenario, nextRefs.dataset,
-      nextRefs.rule, input.queryColumn ?? current.queryColumn,
-      input.sampleIds === undefined ? [...current.sampleIds] : input.sampleIds,
-      nextRefs.dataset);
+      nextRefs.rule, input.queryColumn ?? (sameDataset ? current.queryColumn : undefined),
+      input.sampleIds ?? (sameDataset ? [...current.sampleIds] : undefined), input.step ?? current.step);
     if (!binding.ok) return binding;
 
     const updated: DraftRecord = {
@@ -405,7 +421,8 @@ export class DraftManager {
       step: input.step ?? current.step,
       ...(input.name !== undefined ? { name: input.name } : {}),
       scenario: cloneRef(nextRefs.scenario),
-      dataset: cloneRef(nextRefs.dataset),
+      ...(nextRefs.dataset ? { dataset: cloneRef(nextRefs.dataset) } : {}),
+      ...(input.schedule ? { schedule: { ...input.schedule } } : {}),
       ...(nextRefs.rule ? { rule: cloneRef(nextRefs.rule) } : {}),
       queryColumn: binding.value.queryColumn,
       sampleIds: binding.value.sampleIds,
@@ -435,11 +452,7 @@ export class DraftManager {
       revision: current.revision + 1,
       updatedAt: this.now(),
     });
-    for (const entry of this.previews.listForDraft(draftId, current.ownerAccountId)) {
-      if (entry.status === 'pending' || entry.status === 'running') {
-        this.previews.save({ ...entry, status: 'canceled', updatedAt: saved.updatedAt });
-      }
-    }
+    this.cancelOpenPreviews(saved);
     return { ok: true, value: saved, replayed: false };
   }
 
@@ -463,6 +476,9 @@ export class DraftManager {
       return failed(issue('REVISION_CONFLICT', 'expectedRevision',
         `草稿已被更新，当前版本为 ${current.revision}`));
     }
+    const binding = this.validateBinding(current.ownerAccountId, current.scenario, current.dataset,
+      current.rule, current.queryColumn, [...current.sampleIds], 4);
+    if (!binding.ok) return binding;
     const saved = this.store.save({
       ...current,
       status: 'confirmed',
@@ -474,6 +490,7 @@ export class DraftManager {
         taskRef: cloneRef(input.taskRef),
       },
     });
+    this.cancelOpenPreviews(saved);
     return { ok: true, value: confirmationPayload(saved), replayed: false };
   }
 
@@ -483,7 +500,7 @@ export class DraftManager {
     const loaded = this.load(ownerAccountId, draftId);
     if (!loaded.ok) return loaded;
     const draft = loaded.value;
-    if (draft.status !== 'active') return failed(issue('DRAFT_CANCELED', 'id', '草稿不在编辑中'));
+    if (draft.status !== 'active') return inactiveDraft(draft);
     if (!draft.sampleIds.includes(sampleId)) {
       return failed(issue('SAMPLE_NOT_IN_DATASET', 'sampleId', '样本不在草稿冻结的预览集合中'));
     }
@@ -505,6 +522,7 @@ export class DraftManager {
       signature,
       status: 'pending',
       attempts: 1,
+      executionId: randomUUID(),
       createdAt: at,
       updatedAt: at,
     };
@@ -517,10 +535,13 @@ export class DraftManager {
     draftId: string,
     sampleId: string,
     status: PreviewStatus,
-    detail: { reason?: string; traceRef?: string } = {},
+    detail: PreviewCompletion,
   ): DraftResult<PreviewEntry> {
     const entry = this.requirePreview(ownerAccountId, draftId, sampleId);
     if (!entry.ok) return entry;
+    if (detail?.executionId !== entry.value.executionId) {
+      return failed(issue('REVISION_CONFLICT', 'executionId', '预览执行已被替换'));
+    }
     const allowed: Record<PreviewStatus, readonly PreviewStatus[]> = {
       pending: ['running', 'succeeded', 'failed', 'canceled'],
       running: ['succeeded', 'failed', 'canceled'],
@@ -557,6 +578,7 @@ export class DraftManager {
       ...entry.value,
       status: 'pending',
       attempts: entry.value.attempts + 1,
+      executionId: randomUUID(),
       reason: undefined,
       traceRef: undefined,
       updatedAt: this.now(),
@@ -568,8 +590,19 @@ export class DraftManager {
     return this.previews.listForDraft(draftId, ownerAccountId);
   }
 
+  private cancelOpenPreviews(draft: DraftRecord): void {
+    for (const entry of this.previews.listForDraft(draft.id, draft.ownerAccountId)) {
+      if (entry.status === 'pending' || entry.status === 'running') {
+        this.previews.save({ ...entry, status: 'canceled', updatedAt: draft.updatedAt });
+      }
+    }
+  }
+
   private requirePreview(ownerAccountId: string | undefined, draftId: string, sampleId: string)
     : DraftResult<PreviewEntry> {
+    const draft = this.load(ownerAccountId, draftId);
+    if (!draft.ok) return draft;
+    if (draft.value.status !== 'active') return inactiveDraft(draft.value);
     const entry = this.previews.get(previewKey(ownerAccountId ?? '', draftId, sampleId), ownerAccountId);
     if (!entry) return failed(issue('PREVIEW_NOT_FOUND', 'sampleId', '预览不存在或不属于当前账号'));
     return { ok: true, value: entry, replayed: false };
@@ -578,29 +611,32 @@ export class DraftManager {
   private validateBinding(
     owner: string,
     scenario: VersionRef,
-    dataset: VersionRef,
+    dataset: VersionRef | undefined,
     rule: VersionRef | undefined,
     queryColumn: string | undefined,
     sampleIds: string[] | undefined,
-    datasetRef: VersionRef = dataset,
-  ): DraftResult<{ queryColumn: string; sampleIds: string[] }> {
+    step: DraftStep,
+  ): DraftResult<{ queryColumn?: string; sampleIds: string[] }> {
     const problems: DraftIssue[] = [];
     if (!this.catalog.getScenario(scenario, owner)) {
       problems.push(issue('INVALID_INPUT', 'scenario', '场景版本不存在或不属于当前账号'));
     }
-    const datasetVersion = this.catalog.getDataset(datasetRef, owner);
-    if (!datasetVersion) {
-      problems.push(issue('INVALID_INPUT', 'dataset', '数据集版本不存在或不属于当前账号'));
-    }
     if (rule && !this.catalog.getRule(rule, owner)) {
       problems.push(issue('INVALID_INPUT', 'rule', '规则版本不存在或不属于当前账号'));
-    }
-    if (this.catalog.getArchive('dataset', datasetRef, owner)) {
-      problems.push(issue('INVALID_INPUT', 'dataset', '数据集版本已归档'));
     }
     if (rule && this.catalog.getArchive('rule', rule, owner)) {
       problems.push(issue('INVALID_INPUT', 'rule', '规则版本已归档'));
     }
+    if (step === 4 && !rule) problems.push(issue('INVALID_INPUT', 'rule', '确认前必须选定规则版本'));
+    if (!dataset) {
+      if (step >= 3 || queryColumn !== undefined || sampleIds?.length) {
+        problems.push(issue('INVALID_INPUT', 'dataset', '需要先选择数据集'));
+      }
+      return problems.length ? failed(...problems) : { ok: true, value: { sampleIds: [] }, replayed: false };
+    }
+    const datasetVersion = this.catalog.getDataset(dataset, owner);
+    if (!datasetVersion) problems.push(issue('INVALID_INPUT', 'dataset', '数据集版本不存在或不属于当前账号'));
+    if (this.catalog.getArchive('dataset', dataset, owner)) problems.push(issue('INVALID_INPUT', 'dataset', '数据集版本已归档'));
     let resolvedQuery = queryColumn?.trim() ?? datasetVersion?.snapshot.queryColumn;
     if (!text(resolvedQuery) || (datasetVersion && !datasetVersion.snapshot.columns.includes(resolvedQuery))) {
       problems.push(issue('INVALID_INPUT', 'queryColumn', '查询列必须是数据集冻结列中的非空文本列'));
@@ -622,7 +658,7 @@ export class DraftManager {
 
 function confirmationPayload(draft: DraftRecord): DraftConfirmation {
   const confirmation = draft.confirmation;
-  if (!confirmation || !draft.rule) throw new Error('草稿尚未确认');
+  if (!confirmation || !draft.rule || !draft.dataset || !draft.queryColumn) throw new Error('草稿尚未确认');
   return deepFreeze({
     sourceDraftId: draft.id,
     taskRef: cloneRef(confirmation.taskRef),
@@ -631,7 +667,7 @@ function confirmationPayload(draft: DraftRecord): DraftConfirmation {
       scenario: cloneRef(draft.scenario),
       dataset: cloneRef(draft.dataset),
       rule: cloneRef(draft.rule),
-      schedule: { enabled: false as const, timezone: 'Asia/Shanghai' as const },
+      schedule: draft.schedule ?? { enabled: false, timezone: 'Asia/Shanghai' as const },
       variableMappings: draft.mappings.map((mapping) => ({ ...mapping })),
     },
     queryColumn: draft.queryColumn,

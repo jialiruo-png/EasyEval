@@ -83,10 +83,10 @@ function setup(options: { ttlMs?: number } = {}) {
     makePreview: (sampleId: string, status: 'succeeded' | 'failed' = 'succeeded') => {
       const acquired = drafts.acquirePreview('acct-A', draftId, sampleId);
       assert.equal(acquired.ok, true);
-      const running = drafts.markPreview('acct-A', draftId, sampleId, 'running');
+      const running = drafts.markPreview('acct-A', draftId, sampleId, 'running', { executionId: acquired.value.entry.executionId });
       assert.equal(running.ok, true);
       const finished = drafts.markPreview('acct-A', draftId, sampleId, status,
-        { reason: status === 'failed' ? 'Agent 超时' : undefined, traceRef: `trace-${sampleId}` });
+        { executionId: acquired.value.entry.executionId, reason: status === 'failed' ? 'Agent 超时' : undefined, traceRef: `trace-${sampleId}` });
       assert.equal(finished.ok, true);
     },
   };
@@ -229,7 +229,7 @@ test('评分状态流转、结果与 Trace 引用冻结，终态不能重复流�
   const { trials, acquire } = setup();
   const acquired = acquire('R1');
   assert.equal(acquired.ok, true);
-  const running = trials.mark('acct-A', 'draft:trial-1', 'R1', 'running');
+  const running = trials.mark('acct-A', 'draft:trial-1', 'R1', 'running', { executionId: acquired.value.entry.executionId });
   assert.equal(running.ok, true);
   if (!running.ok) return;
   assert.equal(running.value.status, 'running');
@@ -239,7 +239,7 @@ test('评分状态流转、结果与 Trace 引用冻结，终态不能重复流�
     businessJson: { primary_dimension: { total_score: 0.75 }, secondary_dimensions: [{ name: '参数填充正确' }] },
   };
   const succeeded = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded',
-    { result, traceRef: 'trace-judge-1' });
+    { executionId: acquired.value.entry.executionId, result, traceRef: 'trace-judge-1' });
   assert.equal(succeeded.ok, true);
   if (!succeeded.ok) return;
   assert.equal(succeeded.value.status, 'succeeded');
@@ -249,21 +249,22 @@ test('评分状态流转、结果与 Trace 引用冻结，终态不能重复流�
   assert.equal(succeeded.value.traceRef, 'trace-judge-1');
   const stored = trials.get('acct-A', 'draft:trial-1', 'R1');
   assert.equal(stored?.result?.score, 0.75);
-  const again = trials.mark('acct-A', 'draft:trial-1', 'R1', 'failed');
+  const again = trials.mark('acct-A', 'draft:trial-1', 'R1', 'failed', { executionId: acquired.value.entry.executionId });
   assert.equal(again.ok, false);
   if (!again.ok) assert.deepEqual(codes(again as { ok: false; issues: TrialIssue[] }), ['TRIAL_TRANSITION']);
 });
 
 test('全 NA 空分值与缺失结果按规则契约处理，非法结果不落库', () => {
   const { trials, acquire } = setup();
-  acquire('R1');
-  const missing = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded');
+  const acquired = acquire('R1');
+  assert.ok(acquired.ok);
+  const missing = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', { executionId: acquired.value.entry.executionId });
   assert.equal(missing.ok, false);
   const badScore = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded',
-    { result: { score: Number.NaN } });
+    { executionId: acquired.value.entry.executionId, result: { score: Number.NaN } });
   assert.equal(badScore.ok, false);
   const na = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded',
-    { result: { score: null, reason: '四项均为 NA', businessJson: { redline_fail_hits: [] } } });
+    { executionId: acquired.value.entry.executionId, result: { score: null, reason: '四项均为 NA', businessJson: { redline_fail_hits: [] } } });
   assert.equal(na.ok, true);
   if (!na.ok) return;
   assert.equal(na.value.result?.score, null);
@@ -273,8 +274,9 @@ test('全 NA 空分值与缺失结果按规则契约处理，非法结果不落�
 
 test('失败按条重试递增尝试并清除旧结果，执行中的重试直接复用', () => {
   const { trials, acquire } = setup();
-  acquire('R1');
-  const failed = trials.mark('acct-A', 'draft:trial-1', 'R1', 'failed', { reason: '评估器超时' });
+  const acquired = acquire('R1');
+  assert.ok(acquired.ok);
+  const failed = trials.mark('acct-A', 'draft:trial-1', 'R1', 'failed', { executionId: acquired.value.entry.executionId, reason: '评估器超时' });
   assert.equal(failed.ok, true);
   if (!failed.ok) return;
   assert.equal(failed.value.reason, '评估器超时');
@@ -289,7 +291,13 @@ test('失败按条重试递增尝试并清除旧结果，执行中的重试直�
   if (!again.ok) return;
   assert.equal(again.replayed, true);
   assert.equal(again.value.attempts, 2);
-  const done = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', { result: { score: 100 } });
+  const late = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', {
+    executionId: acquired.value.entry.executionId, result: { score: 20 },
+  });
+  assert.equal(late.ok, false);
+  const done = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', {
+    executionId: retried.value.executionId, result: { score: 100 },
+  });
   assert.equal(done.ok, true);
   const retryDone = trials.retry('acct-A', 'draft:trial-1', 'R1');
   assert.equal(retryDone.ok, false);
@@ -298,9 +306,10 @@ test('失败按条重试递增尝试并清除旧结果，执行中的重试直�
 
 test('取消草稿停止未结束试评分并隐藏旧结果', () => {
   const { drafts, trials, acquire } = setup();
-  acquire('R1');
+  const acquired = acquire('R1');
+  assert.ok(acquired.ok);
   acquire('R2');
-  const done = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', { result: { score: 50 } });
+  const done = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', { executionId: acquired.value.entry.executionId, result: { score: 50 } });
   assert.equal(done.ok, true);
   const canceled = trials.cancelForDraft('acct-A', 'draft:trial-1');
   assert.equal(canceled.ok, true);
@@ -312,7 +321,7 @@ test('取消草稿停止未结束试评分并隐藏旧结果', () => {
   assert.equal(draftCancel.ok, true);
   assert.deepEqual(trials.list('acct-A', 'draft:trial-1'), []);
   assert.equal(trials.get('acct-A', 'draft:trial-1', 'R1'), undefined);
-  const forbidden = trials.mark('acct-A', 'draft:trial-1', 'R1', 'failed');
+  const forbidden = trials.mark('acct-A', 'draft:trial-1', 'R1', 'failed', { executionId: acquired.value.entry.executionId });
   assert.equal(forbidden.ok, false);
   if (!forbidden.ok) assert.deepEqual(codes(forbidden as { ok: false; issues: TrialIssue[] }), ['DRAFT_CANCELED']);
 });
@@ -351,7 +360,7 @@ test('草稿确认后不再新增试评分，已完成条目按当前签名仍�
   const { drafts, trials, acquire } = setup();
   const acquired = acquire('R1');
   assert.equal(acquired.ok, true);
-  const done = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', { result: { score: 80 } });
+  const done = trials.mark('acct-A', 'draft:trial-1', 'R1', 'succeeded', { executionId: acquired.value.entry.executionId, result: { score: 80 } });
   assert.equal(done.ok, true);
   const confirmed = drafts.confirm('acct-A', 'draft:trial-1', {
     taskRef: { id: 'task-trial', version: 'v1' },
@@ -378,4 +387,23 @@ test('归属隔离：跨账号读不到、不能获取，存储中的归属始�
   const stored = trialStore.get('acct-A\u0000draft:trial-1\u0000R1', 'acct-A');
   assert.equal(stored?.ownerAccountId, 'acct-A');
   assert.equal(trialStore.get('acct-A\u0000draft:trial-1\u0000R1', 'acct-B'), undefined);
+});
+
+test('规则变更后，上一条试评分回调不能写入新规则的结果', () => {
+  const { drafts, trials, draftId, acquire, advance } = setup({ ttlMs: 60_000 });
+  const old = acquire('R1');
+  assert.ok(old.ok);
+  assert.ok(drafts.update('acct-A', draftId, { expectedRevision: 1, rule: RULE_V2 }).ok);
+  const current = acquire('R1');
+  assert.ok(current.ok);
+  assert.equal(trials.mark('acct-A', draftId, 'R1', 'succeeded', {
+    executionId: old.value.entry.executionId, result: { score: 0.7 },
+  }).ok, false);
+  assert.equal(trials.get('acct-A', draftId, 'R1')?.status, 'pending');
+  advance(2);
+  const late = trials.mark('acct-A', draftId, 'R1', 'succeeded', {
+    executionId: current.value.entry.executionId, result: { score: 0.8 },
+  });
+  assert.ok(!late.ok);
+  assert.equal(late.issues[0].code, 'DRAFT_EXPIRED');
 });

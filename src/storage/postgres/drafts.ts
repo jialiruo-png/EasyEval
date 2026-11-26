@@ -1,19 +1,19 @@
 /**
  * 草稿与预览索引的 PostgreSQL 落盘适配层（P3/P4 准备）。
  *
- * 与运行索引一致：写操作在按账号加事务锁的单个事务内加载该账号的草稿与预览，
+ * 与运行索引一致：写操作在按账号加事务锁的单个事务内加载目标草稿与预览，
  * 用同一份 DraftManager 同步领域规则完成校验、revision 并发、幂等与签名比对，
  * 成功后仅把新增或变更的文档写回；读取走只读事务并按账号限定。
- * 草稿 ID 带 draft: 前缀、与 run_index 分表；不接 Runner、调度、HTTP 与真实登录。
+ * 草稿 ID 带 draft: 前缀、与 run_index 分表；执行数据与正式评测结果分别存储。
  */
 import type { Pool, PoolClient } from 'pg';
 import {
   DraftManager, InMemoryDraftStore, InMemoryPreviewStore, previewKey,
   type ConfirmDraftInput, type CreateDraftInput, type DraftConfirmation, type DraftRecord,
-  type DraftResult, type DraftStore, type PreviewEntry, type PreviewStatus, type PreviewStore,
+  type DraftResult, type DraftStore, type PreviewCompletion, type PreviewEntry, type PreviewStatus, type PreviewStore,
   type UpdateDraftInput,
 } from '../../domain/drafts.ts';
-import { ResourceCatalog, type VersionRef } from '../../domain/resources.ts';
+import { deepFreeze, ResourceCatalog, type VersionRef } from '../../domain/resources.ts';
 import { catalogForDrafts } from './catalog.ts';
 import { transaction } from './database.ts';
 
@@ -23,6 +23,7 @@ interface PreviewRow {
   draft_id: string;
   sample_id: string;
   signature: string;
+  execution_id: string;
   status: PreviewStatus;
   attempts: number;
   reason: string | null;
@@ -52,6 +53,7 @@ function toEntry(row: PreviewRow): PreviewEntry {
     draftId: row.draft_id,
     sampleId: row.sample_id,
     signature: row.signature,
+    executionId: row.execution_id,
     status: row.status,
     attempts: row.attempts,
     ...(row.reason === null ? {} : { reason: row.reason }),
@@ -61,8 +63,8 @@ function toEntry(row: PreviewRow): PreviewEntry {
   };
 }
 
-async function loadState(client: PoolClient, owner: string): Promise<State> {
-  const draftRows = await client.query<DraftRow>('SELECT document FROM drafts WHERE owner_id=$1', [owner]);
+async function loadState(client: PoolClient, owner: string, draftId: string | undefined): Promise<State> {
+  const draftRows = await client.query<DraftRow>('SELECT document FROM drafts WHERE owner_id=$1 AND id=$2', [owner, draftId]);
   const drafts = new InMemoryDraftStore();
   const draftBefore = new Map<string, string>();
   const draftIds = new Set<string>();
@@ -72,8 +74,8 @@ async function loadState(client: PoolClient, owner: string): Promise<State> {
     draftIds.add(row.document.id);
   }
   const previewRows = await client.query<PreviewRow>(
-    `SELECT owner_id,draft_id,sample_id,signature,status,attempts,reason,trace_ref,created_at,updated_at
-     FROM draft_previews WHERE owner_id=$1`, [owner]);
+    `SELECT owner_id,draft_id,sample_id,signature,execution_id,status,attempts,reason,trace_ref,created_at,updated_at
+     FROM draft_previews WHERE owner_id=$1 AND draft_id=$2`, [owner, draftId]);
   const previews = new InMemoryPreviewStore();
   const previewBefore = new Map<string, string>();
   for (const row of previewRows.rows) {
@@ -92,15 +94,18 @@ async function persistState(client: PoolClient, owner: string, state: State): Pr
   }
   for (const [id, document] of afterDrafts) {
     if (state.draftBefore.get(id) === document) continue;
-    const draft = state.drafts.peek(id)!;
-    await client.query(
-      `INSERT INTO drafts(owner_id,id,step,status,revision,expires_at,created_at,updated_at,document)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-       ON CONFLICT (owner_id,id) DO UPDATE SET step=EXCLUDED.step,status=EXCLUDED.status,
-         revision=EXCLUDED.revision,expires_at=EXCLUDED.expires_at,updated_at=EXCLUDED.updated_at,
-         document=EXCLUDED.document`,
-      [owner, draft.id, draft.step, draft.status, draft.revision, draft.expiresAt,
-        draft.createdAt, draft.updatedAt, document]);
+    const draft = state.drafts.get(id, owner)!;
+    if (state.draftBefore.has(id)) {
+      await client.query(
+        `UPDATE drafts SET step=$3,status=$4,revision=$5,updated_at=$6,document=$7::jsonb
+         WHERE owner_id=$1 AND id=$2`,
+        [owner, id, draft.step, draft.status, draft.revision, draft.updatedAt, document]);
+    } else {
+      await client.query(
+        `INSERT INTO drafts(owner_id,id,step,status,revision,expires_at,created_at,updated_at,document)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+        [owner, id, draft.step, draft.status, draft.revision, draft.expiresAt, draft.createdAt, draft.updatedAt, document]);
+    }
   }
 
   const afterPreviews = new Map<string, PreviewEntry>();
@@ -115,12 +120,12 @@ async function persistState(client: PoolClient, owner: string, state: State): Pr
   for (const [key, entry] of afterPreviews) {
     if (state.previewBefore.get(key) === JSON.stringify(entry)) continue;
     await client.query(
-      `INSERT INTO draft_previews(key_b64,owner_id,draft_id,sample_id,signature,status,attempts,reason,trace_ref,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       ON CONFLICT (key_b64) DO UPDATE SET signature=EXCLUDED.signature,status=EXCLUDED.status,
+      `INSERT INTO draft_previews(key_b64,owner_id,draft_id,sample_id,signature,execution_id,status,attempts,reason,trace_ref,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (key_b64) DO UPDATE SET signature=EXCLUDED.signature,execution_id=EXCLUDED.execution_id,status=EXCLUDED.status,
          attempts=EXCLUDED.attempts,reason=EXCLUDED.reason,trace_ref=EXCLUDED.trace_ref,
-         updated_at=EXCLUDED.updated_at`,
-      [encodeKey(key), owner, entry.draftId, entry.sampleId, entry.signature, entry.status,
+         created_at=EXCLUDED.created_at,updated_at=EXCLUDED.updated_at`,
+      [encodeKey(key), owner, entry.draftId, entry.sampleId, entry.signature, entry.executionId, entry.status,
         entry.attempts, entry.reason ?? null, entry.traceRef ?? null, entry.createdAt, entry.updatedAt]);
   }
 }
@@ -146,7 +151,7 @@ async function lockOwner(client: PoolClient, owner: string): Promise<void> {
 }
 
 async function runWrite<T>(
-  pool: Pool, owner: string | undefined,
+  pool: Pool, owner: string | undefined, draftId: string | undefined,
   refsFor: (state: State) => CatalogRef[],
   work: (manager: DraftManager) => DraftResult<T>,
 ): Promise<DraftResult<T>> {
@@ -154,7 +159,7 @@ async function runWrite<T>(
   if (!owner) return work(new DraftManager(new ResourceCatalog()));
   return transaction(pool, false, async (client) => {
     await lockOwner(client, owner);
-    const state = await loadState(client, owner);
+    const state = await loadState(client, owner, draftId);
     const refs = refsFor(state);
     const manager = new DraftManager(
       refs.length ? await catalogForDrafts(client, owner, refs) : new ResourceCatalog(),
@@ -167,11 +172,11 @@ async function runWrite<T>(
 }
 
 async function runRead<T>(
-  pool: Pool, owner: string | undefined, work: (manager: DraftManager) => T,
+  pool: Pool, owner: string | undefined, draftId: string, work: (manager: DraftManager) => T,
 ): Promise<T> {
   if (!owner) return work(new DraftManager(new ResourceCatalog()));
   return transaction(pool, true, async (client) => {
-    const state = await loadState(client, owner);
+    const state = await loadState(client, owner, draftId);
     const manager = new DraftManager(new ResourceCatalog(),
       { store: state.drafts, previewStore: state.previews });
     return work(manager);
@@ -191,7 +196,7 @@ export interface PostgresDrafts {
   ): Promise<DraftResult<{ entry: PreviewEntry; created: boolean }>>;
   markPreview(
     owner: string | undefined, draftId: string, sampleId: string, status: PreviewStatus,
-    detail?: { reason?: string; traceRef?: string },
+    detail: PreviewCompletion,
   ): Promise<DraftResult<PreviewEntry>>;
   retryPreview(owner: string | undefined, draftId: string, sampleId: string): Promise<DraftResult<PreviewEntry>>;
   listPreviews(owner: string | undefined, draftId: string): Promise<PreviewEntry[]>;
@@ -200,41 +205,45 @@ export interface PostgresDrafts {
 export function postgresDrafts(pool: Pool): PostgresDrafts {
   return {
     create(owner, input) {
-      return runWrite(pool, owner, () => refsFrom(input ?? {}),
+      return runWrite(pool, owner, input?.id, () => refsFrom(input ?? {}),
         (manager) => manager.create({ ...input, ownerAccountId: owner! }));
     },
     get(owner, draftId) {
-      return runRead(pool, owner, (manager) => manager.get(owner, draftId));
+      return runRead(pool, owner, draftId, (manager) => manager.get(owner, draftId));
     },
-    list(owner) {
-      return runRead(pool, owner, (manager) => manager.list(owner));
+    async list(owner) {
+      if (!owner) return [];
+      const result = await pool.query<DraftRow>(
+        'SELECT document FROM drafts WHERE owner_id=$1 ORDER BY created_at,id', [owner]);
+      return result.rows.map((row) => deepFreeze(row.document));
     },
     load(owner, draftId) {
-      return runRead(pool, owner, (manager) => manager.load(owner, draftId));
+      return runRead(pool, owner, draftId, (manager) => manager.load(owner, draftId));
     },
     update(owner, draftId, input) {
-      return runWrite(pool, owner, (state) => {
-        const current = state.drafts.peek(draftId);
+      return runWrite(pool, owner, draftId, (state) => {
+        const current = state.drafts.get(draftId, owner);
         return refsFrom({ ...(current ?? {}), ...(input ?? {}) });
       }, (manager) => manager.update(owner, draftId, input));
     },
     cancel(owner, draftId) {
-      return runWrite(pool, owner, () => [], (manager) => manager.cancel(owner, draftId));
+      return runWrite(pool, owner, draftId, () => [], (manager) => manager.cancel(owner, draftId));
     },
     confirm(owner, draftId, input) {
-      return runWrite(pool, owner, () => [], (manager) => manager.confirm(owner, draftId, input));
+      return runWrite(pool, owner, draftId, (state) => refsFrom(state.drafts.get(draftId, owner) ?? {}),
+        (manager) => manager.confirm(owner, draftId, input));
     },
     acquirePreview(owner, draftId, sampleId) {
-      return runWrite(pool, owner, () => [], (manager) => manager.acquirePreview(owner, draftId, sampleId));
+      return runWrite(pool, owner, draftId, () => [], (manager) => manager.acquirePreview(owner, draftId, sampleId));
     },
     markPreview(owner, draftId, sampleId, status, detail) {
-      return runWrite(pool, owner, () => [], (manager) => manager.markPreview(owner, draftId, sampleId, status, detail));
+      return runWrite(pool, owner, draftId, () => [], (manager) => manager.markPreview(owner, draftId, sampleId, status, detail));
     },
     retryPreview(owner, draftId, sampleId) {
-      return runWrite(pool, owner, () => [], (manager) => manager.retryPreview(owner, draftId, sampleId));
+      return runWrite(pool, owner, draftId, () => [], (manager) => manager.retryPreview(owner, draftId, sampleId));
     },
     listPreviews(owner, draftId) {
-      return runRead(pool, owner, (manager) => manager.listPreviews(owner, draftId));
+      return runRead(pool, owner, draftId, (manager) => manager.listPreviews(owner, draftId));
     },
   };
 }

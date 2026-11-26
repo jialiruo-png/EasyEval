@@ -57,6 +57,16 @@ export interface ScheduleConfig {
   timezone: 'Asia/Shanghai';
 }
 
+export function validateSchedule(value: unknown, field = 'schedule') {
+  const schedule = value as Partial<ScheduleConfig> | null;
+  const invalid = (path: string, message: string) => ({ code: 'INVALID_INPUT' as const, field: path, message });
+  if (schedule?.timezone !== 'Asia/Shanghai') return invalid(field, '时区必须为 Asia/Shanghai');
+  if (typeof schedule.enabled !== 'boolean') return invalid(field + '.enabled', '定时开关必须是布尔值');
+  if (schedule.enabled && (typeof schedule.cron !== 'string' || !schedule.cron.trim())) {
+    return invalid(field + '.cron', '启用定时必须提供 cron');
+  }
+}
+
 export interface TaskBinding {
   /** 新任务必填。早期已冻结的快照可能没有名称。 */
   name?: string;
@@ -497,13 +507,8 @@ export class ResourceCatalog {
     resolve(this.datasets, binding?.dataset, 'binding.dataset', 'DATASET_NOT_FOUND', '数据集', 'dataset', 'DATASET_ARCHIVED');
     resolve(this.rules, binding?.rule, 'binding.rule', 'RULE_NOT_FOUND', '规则', 'rule', 'RULE_ARCHIVED');
 
-    if (!binding?.schedule || !['Asia/Shanghai'].includes(binding.schedule.timezone)) {
-      issues.push(issue('INVALID_INPUT', 'binding.schedule', '时区必须为 Asia/Shanghai'));
-    } else if (typeof binding.schedule.enabled !== 'boolean') {
-      issues.push(issue('INVALID_INPUT', 'binding.schedule.enabled', '定时开关必须是布尔值'));
-    } else if (binding.schedule.enabled && (typeof binding.schedule.cron !== 'string' || !binding.schedule.cron.trim())) {
-      issues.push(issue('INVALID_INPUT', 'binding.schedule.cron', '启用定时必须提供 cron'));
-    }
+    const scheduleIssue = validateSchedule(binding?.schedule, 'binding.schedule');
+    if (scheduleIssue) issues.push(scheduleIssue);
     if (!Array.isArray(binding?.variableMappings)) {
       issues.push(issue('INVALID_INPUT', 'binding.variableMappings', '变量映射必须是数组'));
     } else {

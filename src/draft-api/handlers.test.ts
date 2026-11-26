@@ -169,12 +169,12 @@ test('预览获取：同签名复用、越权样本拒绝、最多三条', async
 test('预览流转与按条重试：非法状态 400/422，成功不可重试，失败重试递增次数', async () => {
   const { accessor } = setup();
   await seedDraft(accessor);
-  ok(await acquireManagedPreview(accessor, { accountId: A }, 'draft:regression-1', { sampleId: 'R1' }), 201);
+  const first = ok(await acquireManagedPreview(accessor, { accountId: A }, 'draft:regression-1', { sampleId: 'R1' }), 201);
   assert.equal(err(await transitionManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1',
     { status: 'done' })).httpStatus, 400);
-  ok(await transitionManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1', { status: 'running' }));
+  ok(await transitionManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1', { executionId: first.executionId, status: 'running' }));
   ok(await transitionManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1', {
-    status: 'failed', reason: 'trace 延迟',
+    executionId: first.executionId, status: 'failed', reason: 'trace 延迟',
   }));
   const retried = ok(await retryManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1'));
   assert.equal(retried.status, 'pending');
@@ -183,12 +183,12 @@ test('预览流转与按条重试：非法状态 400/422，成功不可重试，
   const activeReplay = await retryManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1');
   assert.equal((activeReplay as Extract<typeof activeReplay, { ok: true }>).replayed, true);
   ok(await transitionManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1', {
-    status: 'succeeded', traceRef: 'trace-http-1',
+    executionId: retried.executionId, status: 'succeeded', traceRef: 'trace-http-1',
   }));
   const afterSuccess = err(await retryManagedPreview(accessor, { accountId: A }, 'draft:regression-1', 'R1'));
   assert.equal(afterSuccess.code, 'PREVIEW_TRANSITION');
   assert.equal(err(await transitionManagedPreview(accessor, { accountId: B }, 'draft:regression-1', 'R1',
-    { status: 'failed' })).httpStatus, 404);
+    { executionId: retried.executionId, status: 'failed' })).httpStatus, 404);
 });
 
 test('配置签名变化后旧预览被丢弃，按新配置重新获取', async () => {

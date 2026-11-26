@@ -114,7 +114,7 @@ test('创建草稿：账号限定、draft 前缀、冻结快照、默认取前�
   assert.equal(drafts.get('acct-B', draft.id), undefined);
   assert.deepEqual(drafts.list('acct-B'), []);
   assert.deepEqual(drafts.list('acct-A').map((item) => item.id), [draft.id]);
-  assert.equal(store.peek(draft.id)?.ownerAccountId, 'acct-A');
+  assert.equal(store.get(draft.id, 'acct-A')?.ownerAccountId, 'acct-A');
 });
 
 test('创建校验：版本归属、查询列、预览样本上限与重复占位符均有字段级错误且不落库', () => {
@@ -133,7 +133,7 @@ test('创建校验：版本归属、查询列、预览样本上限与重复占�
     assert.equal(result.ok, false);
     if (!result.ok) assert.ok(codes(result).includes(code), `${code} not in ${codes(result).join(',')}`);
   }
-  assert.equal(store.peek('draft:regression-1'), undefined);
+  assert.equal(store.get('draft:regression-1', 'acct-A'), undefined);
   const duplicate = drafts.create(createInput());
   assert.equal(duplicate.ok, true);
   const replay = drafts.create(createInput());
@@ -165,7 +165,7 @@ test('更新草稿：revision 乐观并发、按账号限定、样本与冻结�
 
   const wrongDataset = drafts.update('acct-A', 'draft:regression-1', updateInput({
     expectedRevision: 2,
-    dataset: { ...OTHER_DATASET },
+    dataset: { ...OTHER_DATASET }, sampleIds: ['R2'],
   }));
   assert.equal(wrongDataset.ok, false);
   if (!wrongDataset.ok) assert.deepEqual(codes(wrongDataset), ['SAMPLE_NOT_IN_DATASET']);
@@ -195,10 +195,10 @@ test('取消草稿：幂等重放、停止未结束预览、保留已完成结�
   assert.equal(drafts.create(createInput()).ok, true);
   const pending = drafts.acquirePreview('acct-A', 'draft:regression-1', 'R1');
   assert.equal(pending.ok, true);
-  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'running').ok, true);
+  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'running', { executionId: pending.value.entry.executionId }).ok, true);
   const done = drafts.acquirePreview('acct-A', 'draft:regression-1', 'R2');
   assert.equal(done.ok, true);
-  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R2', 'succeeded').ok, true);
+  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R2', 'succeeded', { executionId: done.value.entry.executionId }).ok, true);
 
   const canceled = drafts.cancel('acct-A', 'draft:regression-1');
   assert.equal(canceled.ok, true);
@@ -280,7 +280,7 @@ test('预览获取：相同签名复用原状态，配置变化丢弃旧结果�
   if (!first.ok) return;
   assert.equal(first.value.created, true);
   assert.equal(first.value.entry.status, 'pending');
-  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'succeeded').ok, true);
+  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'succeeded', { executionId: first.value.entry.executionId }).ok, true);
 
   const replay = drafts.acquirePreview('acct-A', 'draft:regression-1', 'R1');
   assert.equal(replay.ok, true);
@@ -308,15 +308,17 @@ test('预览获取：相同签名复用原状态，配置变化丢弃旧结果�
 test('预览流转与按条重试：失败可重试并递增尝试，成功不可重试，状态不可跨越', () => {
   const { drafts } = setup();
   assert.equal(drafts.create(createInput()).ok, true);
-  assert.equal(drafts.acquirePreview('acct-A', 'draft:regression-1', 'R2').ok, true);
-  const invalid = drafts.markPreview('acct-A', 'draft:regression-1', 'R2', 'succeeded');
+  const initialR2 = drafts.acquirePreview('acct-A', 'draft:regression-1', 'R2');
+  assert.ok(initialR2.ok);
+  const invalid = drafts.markPreview('acct-A', 'draft:regression-1', 'R2', 'succeeded', { executionId: initialR2.value.entry.executionId });
   assert.equal(invalid.ok, true); // pending 可直接完成
   const retrySucceeded = drafts.retryPreview('acct-A', 'draft:regression-1', 'R2');
   assert.equal(retrySucceeded.ok, false);
   if (!retrySucceeded.ok) assert.deepEqual(codes(retrySucceeded), ['PREVIEW_TRANSITION']);
 
-  assert.equal(drafts.acquirePreview('acct-A', 'draft:regression-1', 'R1').ok, true);
-  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'failed', { reason: 'trace 延迟' }).ok, true);
+  const initialR1 = drafts.acquirePreview('acct-A', 'draft:regression-1', 'R1');
+  assert.ok(initialR1.ok);
+  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'failed', { executionId: initialR1.value.entry.executionId, reason: 'trace 延迟' }).ok, true);
   const retried = drafts.retryPreview('acct-A', 'draft:regression-1', 'R1');
   assert.equal(retried.ok, true);
   assert.equal(retried.ok && retried.value.attempts, 2);
@@ -325,19 +327,20 @@ test('预览流转与按条重试：失败可重试并递增尝试，成功不�
   const inFlight = drafts.retryPreview('acct-A', 'draft:regression-1', 'R1');
   assert.equal(inFlight.ok, true);
   assert.equal(inFlight.replayed, true);
-  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'running').ok, true);
-  const done = drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'succeeded', { traceRef: 'trace-1' });
+  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'running', { executionId: retried.value.executionId }).ok, true);
+  const done = drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'succeeded', { executionId: retried.value.executionId, traceRef: 'trace-1' });
   assert.equal(done.ok, true);
   assert.equal(done.ok && done.value.traceRef, 'trace-1');
-  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'failed').ok, false);
-  assert.equal(drafts.markPreview('acct-B', 'draft:regression-1', 'R1', 'failed').ok, false);
+  assert.equal(drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'failed', { executionId: retried.value.executionId }).ok, false);
+  assert.equal(drafts.markPreview('acct-B', 'draft:regression-1', 'R1', 'failed', { executionId: retried.value.executionId }).ok, false);
 });
 
 test('存储重启后草稿、revision、确认与预览签名仍可复核', () => {
   const first = setup();
   assert.equal(first.drafts.create(createInput()).ok, true);
-  assert.equal(first.drafts.acquirePreview('acct-A', 'draft:regression-1', 'R1').ok, true);
-  assert.equal(first.drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'succeeded').ok, true);
+  const preview = first.drafts.acquirePreview('acct-A', 'draft:regression-1', 'R1');
+  assert.ok(preview.ok);
+  assert.equal(first.drafts.markPreview('acct-A', 'draft:regression-1', 'R1', 'succeeded', { executionId: preview.value.entry.executionId }).ok, true);
   const confirmed = first.drafts.confirm('acct-A', 'draft:regression-1', confirmInput());
   assert.equal(confirmed.ok, true);
 
@@ -354,4 +357,78 @@ test('存储重启后草稿、revision、确认与预览签名仍可复核', () 
   assert.equal(restarted.listPreviews('acct-A', 'draft:regression-1')[0]?.status, 'succeeded');
   const stale = restarted.update('acct-A', 'draft:regression-1', updateInput({ expectedRevision: 1 }));
   assert.equal(stale.ok, false);
+});
+
+test('第一步可单独保存，选择和更换数据集时取该版本的默认查询列和样本', () => {
+  const { drafts } = setup();
+  const schedule = { enabled: true, timezone: 'Asia/Shanghai' as const, cron: '0 9 * * *' };
+  const d = drafts.create(createInput({ dataset: undefined, rule: undefined, step: 1, schedule }));
+  assert.ok(d.ok);
+  assert.deepEqual(d.value.sampleIds, []);
+  const id = d.value.id;
+  assert.equal(drafts.update('acct-A', id, { expectedRevision: 1, step: 3 }).ok, false);
+  assert.equal(drafts.acquirePreview('acct-A', id, 'R1').ok, false);
+  const picked = drafts.update('acct-A', id, { expectedRevision: 1, step: 2, dataset: DATASET, queryColumn: 'answer' });
+  assert.ok(picked.ok);
+  assert.deepEqual(picked.value.sampleIds, ['R1', 'R2', 'R3']);
+  const changed = drafts.update('acct-A', id, { expectedRevision: 2, dataset: OTHER_DATASET, rule: RULE });
+  assert.ok(changed.ok);
+  assert.equal(changed.value.queryColumn, 'query');
+  assert.deepEqual(changed.value.sampleIds, ['S1', 'S2']);
+  const confirmed = drafts.confirm('acct-A', id, confirmInput({ expectedRevision: 3 }));
+  assert.ok(confirmed.ok);
+  assert.deepEqual(confirmed.value.binding.schedule, schedule);
+});
+
+test('配置切回原值也拒绝旧回调；草稿取消、过期后不能再回写或重试', () => {
+  const { drafts, advance } = setup({ ttlMs: 60_000 });
+  const draft = drafts.create(createInput());
+  assert.ok(draft.ok);
+  const id = draft.value.id;
+  const first = drafts.acquirePreview('acct-A', id, 'R1');
+  assert.ok(first.ok);
+  assert.ok(drafts.update('acct-A', id, { expectedRevision: 1, queryColumn: 'answer' }).ok);
+  assert.ok(drafts.update('acct-A', id, { expectedRevision: 2, queryColumn: 'query' }).ok);
+  const current = drafts.acquirePreview('acct-A', id, 'R1');
+  assert.ok(current.ok);
+  assert.equal(current.value.entry.signature, first.value.entry.signature);
+  assert.notEqual(current.value.entry.executionId, first.value.entry.executionId);
+  assert.equal(drafts.markPreview('acct-A', id, 'R1', 'succeeded', first.value.entry).ok, false);
+  assert.equal(drafts.listPreviews('acct-A', id)[0].status, 'pending');
+  assert.ok(drafts.cancel('acct-A', id).ok);
+  assert.equal(drafts.retryPreview('acct-A', id, 'R1').ok, false);
+  const next = drafts.create(createInput({ id: 'draft:expires' }));
+  assert.ok(next.ok);
+  const expiring = drafts.acquirePreview('acct-A', next.value.id, 'R1');
+  assert.ok(expiring.ok);
+  advance(2);
+  assert.equal(drafts.markPreview('acct-A', next.value.id, 'R1', 'succeeded', expiring.value.entry).ok, false);
+  assert.equal(drafts.retryPreview('acct-A', next.value.id, 'R1').ok, false);
+});
+
+test('确认时复核已选规则与数据集归档状态，失败后仍可编辑', () => {
+  for (const kind of ['dataset', 'rule'] as const) {
+    const { drafts, catalog } = setup();
+    const d = drafts.create(createInput());
+    assert.ok(d.ok);
+    assert.ok(catalog.archiveResource(kind, kind === 'dataset' ? DATASET : RULE, 'acct-A').ok);
+    const confirmation = drafts.confirm('acct-A', d.value.id, confirmInput());
+    assert.ok(!confirmation.ok);
+    assert.equal(confirmation.issues[0].field, kind);
+    assert.equal(drafts.get('acct-A', d.value.id)?.status, 'active');
+  }
+});
+
+test('不同账号可以保存相同草稿 ID，读取和取消各自独立', () => {
+  const { drafts, catalog } = setup();
+  const other = { id: 'scene-B', version: 'v1' };
+  const scenario = catalog.getScenario(SCENARIO, 'acct-A');
+  assert.ok(scenario);
+  catalog.putScenario('acct-B', other, scenario.snapshot);
+  const id = 'draft:local-name';
+  assert.ok(drafts.create({ id, name: 'A', scenario: SCENARIO, ownerAccountId: 'acct-A' }).ok);
+  assert.ok(drafts.create({ id, name: 'B', scenario: other, ownerAccountId: 'acct-B' }).ok);
+  assert.ok(drafts.cancel('acct-B', id).ok);
+  assert.equal(drafts.get('acct-A', id)?.status, 'active');
+  assert.equal(drafts.get('acct-B', id)?.status, 'canceled');
 });

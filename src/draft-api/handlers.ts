@@ -20,9 +20,9 @@
 import { DRAFT_ID_PREFIX } from '../domain/drafts.ts';
 import type {
   ConfirmDraftInput, CreateDraftInput, DraftConfirmation, DraftIssue, DraftIssueCode,
-  DraftRecord, DraftResult, PreviewEntry, PreviewStatus, UpdateDraftInput,
+  DraftRecord, DraftResult, PreviewCompletion, PreviewEntry, PreviewStatus, UpdateDraftInput,
 } from '../domain/drafts.ts';
-import type { VariableMapping, VersionRef } from '../domain/resources.ts';
+import { validateSchedule, type ScheduleConfig, type VariableMapping, type VersionRef } from '../domain/resources.ts';
 import type { AuthContext } from '../run-api/handlers.ts';
 
 export type { AuthContext } from '../run-api/handlers.ts';
@@ -43,7 +43,7 @@ export interface DraftAccessor {
   ): Promise<DraftResult<{ entry: PreviewEntry; created: boolean }>>;
   markPreview(
     owner: string | undefined, draftId: string, sampleId: string, status: PreviewStatus,
-    detail?: { reason?: string; traceRef?: string },
+    detail: PreviewCompletion,
   ): Promise<DraftResult<PreviewEntry>>;
   retryPreview(owner: string | undefined, draftId: string, sampleId: string): Promise<DraftResult<PreviewEntry>>;
   listPreviews(owner: string | undefined, draftId: string): Promise<PreviewEntry[]>;
@@ -149,6 +149,14 @@ function parseSampleIds(value: unknown): string[] | DraftError {
   return value.map((id) => (id as string).trim());
 }
 
+function parseSchedule(value: unknown): ScheduleConfig | undefined | DraftError {
+  if (value === undefined) return undefined;
+  const issue = validateSchedule(value);
+  if (issue) return badRequest(issue.message, issue.field);
+  const { enabled, timezone, cron } = value as ScheduleConfig;
+  return { enabled, timezone, ...(enabled ? { cron: cron!.trim() } : {}) };
+}
+
 function parseStep(value: unknown): 1 | 2 | 3 | 4 | undefined | DraftError {
   if (value === undefined) return undefined;
   if (![1, 2, 3, 4].includes(value as number)) return badRequest('step 必须是 1 至 4', 'step');
@@ -181,7 +189,7 @@ function inError<T>(value: T | DraftError): value is DraftError {
 function parseCreateBody(body: Record<string, unknown>): Omit<CreateDraftInput, 'ownerAccountId'> | DraftError {
   const scenario = parseRef(body.scenario, 'scenario');
   if (inError(scenario)) return scenario;
-  const dataset = parseRef(body.dataset, 'dataset');
+  const dataset = parseOptionalRef(body, 'dataset');
   if (inError(dataset)) return dataset;
   const rule = parseOptionalRef(body, 'rule');
   if (inError(rule)) return rule;
@@ -194,6 +202,8 @@ function parseCreateBody(body: Record<string, unknown>): Omit<CreateDraftInput, 
   if (inError(name)) return name;
   const queryColumn = parseName(body.queryColumn, 'queryColumn');
   if (inError(queryColumn)) return queryColumn;
+  const schedule = parseSchedule(body.schedule);
+  if (inError(schedule)) return schedule;
   const step = parseStep(body.step);
   if (inError(step)) return step;
   const sampleIds = parseSampleIds(body.sampleIds);
@@ -201,10 +211,11 @@ function parseCreateBody(body: Record<string, unknown>): Omit<CreateDraftInput, 
   const mappings = parseMappings(body.mappings);
   if (inError(mappings)) return mappings;
   return {
-    scenario, dataset,
+    scenario, ...(dataset ? { dataset } : {}),
     ...(rule ? { rule } : {}),
     ...(id ? { id } : {}),
     ...(name ? { name } : {}),
+    ...(schedule ? { schedule } : {}),
     ...(queryColumn ? { queryColumn } : {}),
     ...(step !== undefined ? { step } : {}),
     ...(body.sampleIds !== undefined ? { sampleIds } : {}),
@@ -225,6 +236,8 @@ function parseUpdateBody(body: Record<string, unknown>): UpdateDraftInput | Draf
   if (inError(name)) return name;
   const queryColumn = parseName(body.queryColumn, 'queryColumn');
   if (inError(queryColumn)) return queryColumn;
+  const schedule = parseSchedule(body.schedule);
+  if (inError(schedule)) return schedule;
   const step = parseStep(body.step);
   if (inError(step)) return step;
   const sampleIds = parseSampleIds(body.sampleIds);
@@ -237,6 +250,7 @@ function parseUpdateBody(body: Record<string, unknown>): UpdateDraftInput | Draf
     ...(dataset ? { dataset } : {}),
     ...(body.rule !== undefined ? { rule } : {}),
     ...(body.name !== undefined ? { name } : {}),
+    ...(schedule ? { schedule } : {}),
     ...(body.queryColumn !== undefined ? { queryColumn } : {}),
     ...(body.step !== undefined ? { step } : {}),
     ...(body.sampleIds !== undefined ? { sampleIds } : {}),
@@ -388,11 +402,13 @@ export async function transitionManagedPreview(
   if (!PREVIEW_STATUSES.includes(body.status as PreviewStatus)) {
     return badRequest('status 必须是 pending、running、succeeded、failed 或 canceled', 'status');
   }
+  if (!text(body.executionId)) return badRequest('回写必须提供获取或重试时返回的 executionId', 'executionId');
   const reason = parseName(body.reason, 'reason');
   if (inError(reason)) return reason;
   const traceRef = parseName(body.traceRef, 'traceRef');
   if (inError(traceRef)) return traceRef;
   return sendResult(await accessor.markPreview(owner, id, sample, body.status as PreviewStatus, {
+    executionId: body.executionId,
     ...(reason ? { reason } : {}), ...(traceRef ? { traceRef } : {}),
   }), 200);
 }
