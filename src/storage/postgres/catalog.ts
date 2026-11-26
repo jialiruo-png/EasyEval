@@ -104,6 +104,35 @@ export async function catalogForRuns(
   });
 }
 
+/** 供草稿写事务复用：只加载本次草稿涉及的场景／数据集／规则版本与归档状态。 */
+export async function catalogForDrafts(
+  client: PoolClient, owner: string,
+  refs: readonly { kind: 'scenario' | 'dataset' | 'rule'; ref: VersionRef }[],
+): Promise<ResourceCatalog> {
+  const selected = refs.map(({ kind, ref }) => ({ kind, id: ref.id, version: ref.version }));
+  const result = await client.query<ResourceRow>(
+    `SELECT v.kind,v.id,v.version,v.snapshot,v.content_hash,v.created_at,v.archived_at FROM resource_versions v
+     WHERE owner_id=$1 AND (kind,id,version) IN (
+       SELECT k.kind,k.id,k.version FROM jsonb_to_recordset($2::jsonb) AS k(kind text,id text,version text))`,
+    [owner, JSON.stringify(selected)]);
+  const archives = new InMemoryArchiveStore();
+  for (const record of result.rows) {
+    if (record.archived_at && record.kind !== 'scenario') {
+      archives.put(owner, record.kind, { id: record.id, version: record.version },
+        () => record.archived_at!.toISOString());
+    }
+  }
+  return new ResourceCatalog({
+    stores: {
+      scenario: versions<ScenarioConfigSnapshot>(result.rows, 'scenario', owner),
+      dataset: versions<DatasetSnapshot>(result.rows, 'dataset', owner),
+      rule: versions<RuleDef>(result.rows, 'rule', owner),
+      task: versions<TaskBinding>(result.rows, 'task', owner),
+    },
+    archives,
+  });
+}
+
 /** Run the synchronous domain rules over only the versions involved in this operation.
  * The database transaction owns all mutations; no account data stays in process between requests.
  */

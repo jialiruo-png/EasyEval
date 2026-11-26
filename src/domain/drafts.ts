@@ -237,7 +237,7 @@ function cloneRef(ref: VersionRef): VersionRef {
   return { id: ref.id, version: ref.version };
 }
 
-function previewKey(owner: string, draftId: string, sampleId: string): string {
+export function previewKey(owner: string, draftId: string, sampleId: string): string {
   return `${owner}\u0000${draftId}\u0000${sampleId}`;
 }
 

@@ -28,7 +28,7 @@ export async function transaction<T>(
   }
 }
 
-const migrations = ['001-platform.sql', '002-run-index.sql'];
+const migrations = ['001-platform.sql', '002-run-index.sql', '003-drafts.sql'];
 export async function migrate(pool: Pool): Promise<void> {
   await transaction(pool, false, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(56071, 1)');

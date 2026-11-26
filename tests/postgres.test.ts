@@ -9,6 +9,7 @@ import { sampleXlsxBase64 } from '../src/import-api/xlsx-test-fixture.ts';
 import { createPlatformServer } from '../src/server.ts';
 import { migrate, openPool, PostgresStore } from '../src/storage/postgres/database.ts';
 import { postgresRunIndex } from '../src/storage/postgres/run-index.ts';
+import { postgresDrafts } from '../src/storage/postgres/drafts.ts';
 
 test('PostgreSQL 平台接口', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -249,6 +250,133 @@ test('PostgreSQL 平台接口', async (t) => {
 
     // 结果读取路由（/runs/:runId/results|samples）仍被分流到原 handler，未被运行索引遮蔽。
     assert.equal((await api('runs/' + encodeURIComponent(runId) + '/results', a)).status, 404);
+  });
+
+  await t.test('草稿与预览落 PG：归属隔离、revision 并发、取消/确认幂等、签名缓存与重开可读', async () => {
+    const drafts = postgresDrafts(pool);
+    const scenario = { id: 'draft-scenario', version: 'v1' };
+    const dataset = { id: 'draft-ds', version: 'v1' };
+    const rule = { id: 'draft-rule', version: 'v1' };
+    const task = { id: 'draft-task', version: 'v1' };
+    assert.equal((await api('resources/scenario', a, { ...scenario, snapshot: {
+      name: '草稿场景', profile: 'harness', modelConfigRef: 'test', toolWhitelist: [],
+    } })).status, 201);
+    assert.equal((await api('imports/dataset', a, { ...dataset, name: '草稿样本',
+      queryColumn: 'query', csv: 'query\n第一条\n第二条\n第三条' })).status, 201);
+    assert.equal((await api('resources/rule', a, { ...rule, snapshot: { ...processQualityRule, id: rule.id } })).status, 201);
+    assert.equal((await api('resources/task', a, { ...task, binding: {
+      name: '草稿任务', dataset, rule, scenario,
+      schedule: { enabled: false, timezone: 'Asia/Shanghai' }, variableMappings: [],
+    } })).status, 201);
+
+    const createInput = {
+      id: 'draft:pg-1', name: '草稿测试', scenario, dataset, rule,
+      mappings: [{ placeholder: '{{query}}', source: 'dataset' as const, path: 'query' }],
+    };
+    const created = await drafts.create('A', createInput);
+    assert.equal(created.ok, true);
+    if (!created.ok) throw new Error('草稿创建失败');
+    assert.equal(created.value.id, 'draft:pg-1');
+    assert.equal(created.value.revision, 1);
+    assert.equal(created.value.status, 'active');
+    assert.ok(Object.isFrozen(created.value));
+    assert.equal((await drafts.get('B', created.value.id)), undefined);
+    assert.deepEqual(await drafts.list('B'), []);
+    assert.equal((await drafts.get('A', created.value.id))?.id, 'draft:pg-1');
+    assert.equal((await drafts.list('A')).length, 1);
+    assert.equal((await drafts.create('A', createInput)).ok, false); // ID 冲突重放拒绝
+    assert.equal((await drafts.create(undefined, createInput)).ok, false);
+
+    const stale = await drafts.update('A', 'draft:pg-1', { expectedRevision: 9, step: 2 });
+    assert.equal(stale.ok, false);
+    assert.ok(stale.ok === false && stale.issues.some((item) => item.code === 'REVISION_CONFLICT'));
+    const updated = await drafts.update('A', 'draft:pg-1', { expectedRevision: 1, step: 2 });
+    assert.equal(updated.ok, true);
+    assert.ok(updated.ok && updated.value.revision === 2 && updated.value.step === 2);
+
+    const acquired = await drafts.acquirePreview('A', 'draft:pg-1', 'R000001');
+    assert.equal(acquired.ok, true);
+    assert.ok(acquired.ok && acquired.value.created === true && acquired.value.entry.status === 'pending');
+    assert.equal((await drafts.markPreview('A', 'draft:pg-1', 'R000001', 'running')).ok, true);
+    const done = await drafts.markPreview('A', 'draft:pg-1', 'R000001', 'succeeded', { traceRef: 'trace-pg-1' });
+    assert.equal(done.ok, true);
+    assert.ok(done.ok && done.value.status === 'succeeded' && done.value.traceRef === 'trace-pg-1');
+    const reused = await drafts.acquirePreview('A', 'draft:pg-1', 'R000001');
+    assert.equal(reused.ok, true);
+    assert.ok(reused.ok && reused.replayed === true && reused.value.entry.status === 'succeeded');
+    assert.equal((await drafts.retryPreview('A', 'draft:pg-1', 'R000001')).ok, false); // 成功不可重试
+
+    const failed = await drafts.acquirePreview('A', 'draft:pg-1', 'R000002');
+    assert.equal(failed.ok, true);
+    assert.equal((await drafts.markPreview('A', 'draft:pg-1', 'R000002', 'failed', { reason: 'trace 延迟' })).ok, true);
+    const retried = await drafts.retryPreview('A', 'draft:pg-1', 'R000002');
+    assert.equal(retried.ok, true);
+    assert.ok(retried.ok && retried.value.status === 'pending' && retried.value.attempts === 2);
+    assert.equal((await drafts.listPreviews('B', 'draft:pg-1')).length, 0);
+    assert.equal((await drafts.listPreviews('A', 'draft:pg-1')).length, 2);
+
+    // 配置变化：签名改变即丢弃旧预览，重新获取为新条目。
+    const remapped = await drafts.update('A', 'draft:pg-1', {
+      expectedRevision: 2,
+      mappings: [{ placeholder: '{{query}}', source: 'dataset', path: 'answer' }],
+    });
+    assert.equal(remapped.ok, true);
+    assert.equal((await drafts.listPreviews('A', 'draft:pg-1')).length, 0);
+    const refreshed = await drafts.acquirePreview('A', 'draft:pg-1', 'R000001');
+    assert.equal(refreshed.ok, true);
+    assert.ok(refreshed.ok && refreshed.value.created === true && refreshed.value.entry.status === 'pending');
+    assert.notEqual(refreshed.ok && refreshed.value.entry.signature, done.ok && done.value.signature);
+
+    // 草稿归属与任务版本不写库：确认只产出冻结载荷，按幂等键重放一致。
+    const taskCountSql = "SELECT count(*)::text AS n FROM resource_versions WHERE kind='task' AND owner_id='A'";
+    const tasksBefore = Number((await pool.query<{ n: string }>(taskCountSql)).rows[0].n);
+    const confirmInput = { taskRef: task, name: '草稿确认任务', idempotencyKey: 'confirm-pg-1' };
+    const confirmed = await drafts.confirm('A', 'draft:pg-1', confirmInput);
+    assert.equal(confirmed.ok, true);
+    assert.ok(confirmed.ok && confirmed.value.sourceDraftId === 'draft:pg-1');
+    const confirmReplay = await drafts.confirm('A', 'draft:pg-1', confirmInput);
+    assert.equal(confirmReplay.ok, true);
+    assert.ok(confirmReplay.ok && confirmReplay.replayed === true
+      && JSON.stringify(confirmReplay.value) === (confirmed.ok && JSON.stringify(confirmed.value)));
+    assert.equal((await drafts.confirm('B', 'draft:pg-1', confirmInput)).ok, false);
+    const tasksAfter = Number((await pool.query<{ n: string }>(taskCountSql)).rows[0].n);
+    assert.equal(tasksAfter, tasksBefore); // 确认不写任务版本
+
+    const cancelDraft = await drafts.create('A', { ...createInput, id: 'draft:pg-cancel' });
+    assert.equal(cancelDraft.ok, true);
+    assert.equal((await drafts.acquirePreview('A', 'draft:pg-cancel', 'R000001')).ok, true);
+    const canceled = await drafts.cancel('A', 'draft:pg-cancel');
+    assert.equal(canceled.ok, true);
+    assert.ok(canceled.ok && canceled.value.status === 'canceled');
+    assert.equal((await drafts.listPreviews('A', 'draft:pg-cancel'))[0]?.status, 'canceled');
+    const cancelReplay = await drafts.cancel('A', 'draft:pg-cancel');
+    assert.ok(cancelReplay.ok && cancelReplay.replayed === true);
+    assert.equal((await drafts.update('A', 'draft:pg-cancel', { expectedRevision: 2 })).ok, false);
+
+    const reopened = new Pool({ connectionString: url, options: '-c search_path=' + schema });
+    try {
+      const reader = postgresDrafts(reopened);
+      assert.equal((await reader.get('A', 'draft:pg-1'))?.status, 'confirmed');
+      assert.equal((await reader.get('B', 'draft:pg-1')), undefined);
+      assert.equal((await reader.listPreviews('A', 'draft:pg-1'))[0]?.status, 'pending');
+      assert.deepEqual(await reader.list('B'), []);
+      assert.ok((await reader.list('A')).length === 2);
+      const reopenReplay = await reader.confirm('A', 'draft:pg-1', confirmInput);
+      assert.ok(reopenReplay.ok && reopenReplay.replayed === true
+        && JSON.stringify(reopenReplay.value) === (confirmed.ok && JSON.stringify(confirmed.value)));
+      const staleAfterReopen = await reader.update('A', 'draft:pg-1', { expectedRevision: 1 });
+      assert.equal(staleAfterReopen.ok, false);
+    } finally { await reopened.end(); }
+
+    // 失败事务回滚：CHECK 拒绝的草稿不会留下任何行，也不影响既有草稿。
+    await pool.query("ALTER TABLE drafts ADD CONSTRAINT test_refuse_draft CHECK (id <> 'draft:rollback')");
+    try {
+      await assert.rejects(() => drafts.create('A', { ...createInput, id: 'draft:rollback' }));
+      assert.equal((await drafts.get('A', 'draft:rollback')), undefined);
+      assert.equal((await drafts.get('A', 'draft:pg-1'))?.status, 'confirmed');
+    } finally {
+      await pool.query('ALTER TABLE drafts DROP CONSTRAINT test_refuse_draft');
+    }
   });
 
   await t.test('结果和会话跨连接可读；撤销或过期即失效', async () => {
