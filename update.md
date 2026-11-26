@@ -428,3 +428,22 @@
 - **变更引用**　`main`：开工前文档为 `2a615f3`，本轮代码与测试为 `39dc42e`，本条日志随后单独提交。上游 Coze Loop 仍为 `7a5ab1633eb30396928cd51017a63b456d117985`，DeepSeek Harness 仍为 `e8f7b93a344964de3dca1ace9e72b6e4d6de87cb`，二者均未改动。
 - **未解决问题**　P1 实机验证仍缺 Docker workspace、目标／评估模型配置与受控样本；草稿与预览尚未落 PostgreSQL、未挂 HTTP、未接管理页向导与 Runner；试评分最多两条及其缓存、定时回收与真实登录未做；运行中归档时机仍待负责人确认；上游认证与完整裁判 JSON 回读未实测。
 - **回退**　先 `git revert` 本条日志提交，再 revert `39dc42e` 与 `2a615f3`：移除 `src/domain/drafts.*` 并还原 plan.md 状态行与 P2 轨道；资源、导入、归档、运行索引与结果读取不受影响。纯新增文件与文档修订，无新迁移与运行数据，代码回退不需要数据恢复。
+
+### 2026-11-26 · 草稿与预览索引落 PostgreSQL（开工前）
+
+- **Agent**　WorkBuddy 自动化（每轮有界推进）。
+- **日期**　2026-11-26（Asia/Shanghai）。
+- **开工前变更**　按「结果要求改变产品行为则先更新 PRD／计划／变更记录」约定，先在 [plan.md](plan.md) 状态行与 P2 轨道写明本轮 PG 落盘契约后才写代码。[readme.md](readme.md) 与 plan.md 已确认「草稿和正式运行标识、存储和测试数据分开」「刷新可恢复草稿、确认取消整份草稿」「预览最多三条且配置变化后不复用旧结果」「预览按条状态与重试」「草稿与运行索引使用同一个 PG 库并按个人账号隔离」；本轮只持久化既有领域规则，不改变产品决策。
+- **计划改动**　新增 PG 迁移版本 3（`drafts`：草稿 ID 主键、按账号隔离、状态／revision／整份冻结文档与 CHECK；`draft_previews`：账号＋草稿＋样本为键、按账号＋草稿索引、签名／状态／尝试次数与文档）；新增 `src/storage/postgres/drafts.ts` 的 `postgresDrafts(pool)`，把 `DraftManager` 的创建／读取／列表／更新／取消／确认与预览获取／流转／重试在按账号加事务锁的单个事务内落盘，写前只加载本次涉及的草稿、预览与冻结版本，成功后仅写回新增或变更文档；读取按账号限定。新增 PostgreSQL 集成场景覆盖草稿归属隔离、revision 冲突、取消／确认幂等、签名变化丢弃旧预览、按条重试、关库重开后可读与失败事务回滚。不新增 HTTP 入口、不接 Runner 与调度、真实登录。
+- **原因与影响**　上一轮草稿与预览只有内存实现，实例重启后丢失，且无法在多人部署里按账号共享。PG 切换后计划明确队列、草稿与运行索引使用同一业务库；本轮把它们落盘，供后续向导 HTTP 接口、Runner 与调度直接复用。未启动 Docker、未安装依赖、未调用真实模型、未修改 `upstream/` 两份源码；只连接本机已有的 PostgreSQL 实例运行独立 schema 的集成测试。
+- **验证与回退**　完成交付后在同日记录中追加 `npm run typecheck`、全量 `npm test` 与 `npm run test:postgres` 的结果及回退信息。回退先 revert 日志提交，再 revert 承载代码与迁移的提交；注意 revert 不自动删除 `drafts`／`draft_previews` 表，确认无在用草稿后再按备份策略处理。
+
+### 2026-11-26 · 草稿与预览索引落 PostgreSQL（完成）
+
+- **Agent**　WorkBuddy 自动化（每轮有界推进）。
+- **日期**　2026-11-26（Asia/Shanghai）。
+- **变更范围**　新增迁移版本 3：`drafts`（`(owner_id,id)` 主键、步骤／状态／revision 与整份冻结文档 CHECK、账号创建时间索引）与 `draft_previews`（键的 base64 作主键、账号＋草稿＋样本唯一、签名／状态／尝试次数／原因／trace 引用，账号＋草稿索引）；预览键含 NUL 不能直接入库，改存 `base64url` 并在读回时用领域 `previewKey` 还原，领域只把 `previewKey` 由私有改为导出（行为不变）。`database.ts` 迁移列表登记版本 3；`catalog.ts` 导出 `catalogForDrafts`，只加载本次草稿涉及的场景／数据集／规则版本与归档。新增 `src/storage/postgres/drafts.ts` 的 `postgresDrafts(pool)`：创建／读取／列表／加载／更新／取消／确认与预览获取／流转／重试／列表均走按账号事务，写操作先加 `pg_advisory_xact_lock`、加载该账号草稿与预览，用 `DraftManager` 同步领域规则完成校验、revision 并发、幂等与签名比对，成功后仅把新增或变更的文档 upsert、删除消失的预览，失败事务整体回滚；读取走只读事务并按账号限定。确认仍只产出冻结任务配置载荷、不写任务版本与运行；无账号时返回领域失败且不触碰数据库。`tests/postgres.test.ts` 新增一个集成子测试。[plan.md](plan.md) 状态行与 P2 轨道已同步。未改产品需求、未挂 HTTP、未接 Runner 与调度、未触碰 `upstream/` 两份源码。
+- **验证**　`npm run typecheck` 通过；全量 `npm test` → 233/233（无新增单元测试，无回归）；`npm run test:postgres` 在已有本机 PostgreSQL 17.12 上以独立 schema 运行 → 8/8 子场景（原 7 + 新增 1），迁移重复三次幂等。新增场景覆盖：草稿创建冻结且字段级校验生效、归属隔离（B 读不到 A 的草稿／预览／列表）、同 ID 重放拒绝、revision 冲突与成功更新、预览获取复用／running→succeeded／成功不可重试、失败预览按条重试递增尝试、签名变化丢弃旧预览后重建、确认产出冻结载荷且幂等重放一致、确认不写任务版本、取消停止未结束预览且幂等、取消后更新拒绝、换连接池重开后草稿／预览／幂等逐字段一致、失败事务（CHECK 拒绝）回滚且不影响既有草稿。首次三处失败：测试用 `reused.value.replayed` 应为结果层的 `replayed`、误以为此前子测试未建任务而把任务总数写死为 1、以及把 CHECK 抛错当作领域失败结果（应为 reject 且事务回滚），均按真实契约修正后全绿。未启动 Docker、未安装依赖、未调用真实模型；测试只连接既有本机实例并创建独立 schema。
+- **变更引用**　`main`：代码、迁移、测试与 [plan.md](plan.md) 修订为提交 `101503c`，本条日志随后单独提交。上游 Coze Loop 仍为 `7a5ab1633eb30396928cd51017a63b456d117985`，DeepSeek Harness 仍为 `e8f7b93a344964de3dca1ace9e72b6e4d6de87cb`，二者均未改动。
+- **未解决问题**　P1 实机验证仍缺 Docker workspace、目标／评估模型配置与受控样本；草稿与预览尚未挂 HTTP、未接管理页向导与 Runner，试评分最多两条及其缓存、定时回收与真实登录未做；运行中归档时机仍待负责人确认；写事务「加载该账号全部草稿＋按账号串行＋整文档 upsert」在多实例部署的扩展性待评估；上游认证与完整裁判 JSON 回读未实测。本机业务库在下次服务启动前仍为迁移版本 2，版本 3 届时应用。
+- **回退**　先 `git revert` 本条日志提交，再 revert `101503c`：移除迁移版本 3、`drafts`／`draft_previews` 表定义、`postgresDrafts` 适配层、`catalogForDrafts`、`previewKey` 导出与集成子测试，并把迁移列表还原为两个文件；运行时索引、资源、导入、归档与结果读取不受影响。注意 revert 不自动删除 `drafts`／`draft_previews` 表，确认无在用草稿后再按备份策略处理。集成测试使用独立临时 schema 并自动清理；本机业务库尚无草稿数据，代码回退不需要数据恢复。
