@@ -447,3 +447,22 @@
 - **变更引用**　`main`：代码、迁移、测试与 [plan.md](plan.md) 修订为提交 `101503c`，本条日志随后单独提交。上游 Coze Loop 仍为 `7a5ab1633eb30396928cd51017a63b456d117985`，DeepSeek Harness 仍为 `e8f7b93a344964de3dca1ace9e72b6e4d6de87cb`，二者均未改动。
 - **未解决问题**　P1 实机验证仍缺 Docker workspace、目标／评估模型配置与受控样本；草稿与预览尚未挂 HTTP、未接管理页向导与 Runner，试评分最多两条及其缓存、定时回收与真实登录未做；运行中归档时机仍待负责人确认；写事务「加载该账号全部草稿＋按账号串行＋整文档 upsert」在多实例部署的扩展性待评估；上游认证与完整裁判 JSON 回读未实测。本机业务库在下次服务启动前仍为迁移版本 2，版本 3 届时应用。
 - **回退**　先 `git revert` 本条日志提交，再 revert `101503c`：移除迁移版本 3、`drafts`／`draft_previews` 表定义、`postgresDrafts` 适配层、`catalogForDrafts`、`previewKey` 导出与集成子测试，并把迁移列表还原为两个文件；运行时索引、资源、导入、归档与结果读取不受影响。注意 revert 不自动删除 `drafts`／`draft_previews` 表，确认无在用草稿后再按备份策略处理。集成测试使用独立临时 schema 并自动清理；本机业务库尚无草稿数据，代码回退不需要数据恢复。
+
+### 2026-11-26 · 草稿与预览 HTTP 入口（开工前）
+
+- **Agent**　WorkBuddy 自动化（每轮有界推进）。
+- **日期**　2026-11-26（Asia/Shanghai）。
+- **开工前变更**　按「若某一步结果要求改变产品行为，先更新 PRD／计划与变更记录」约定，先在 [plan.md](plan.md) 状态行与 P2 轨道写明本轮 HTTP 契约后才写代码。[readme.md](readme.md) 与 plan.md 已确认「草稿刷新可恢复、取消与确认可重放」「预览最多三条、签名相同复用且配置变化不复用旧结果」「按条状态与重试」「账号只来自服务端会话」；本轮只暴露既有领域与 PG 契约，不改变产品决策。
+- **计划改动**　新增 `src/draft-api/handlers.ts`、`http.ts` 与内存夹具、两处测试文件，把草稿创建／列表／详情／更新／取消／确认与预览列表／获取／流转／重试挂到 `node:http`；`src/server.ts` 用 `postgresDrafts` 分流 `/api/drafts`。未登录 401、越权与不存在 404、revision 或 ID 冲突 409、形状错误 400、领域与流转错误 422，幂等响应头 `x-replayed`，`no-store`。不接 Runner、调度、真实登录与上游。
+- **验证与回退计划**　完成后追加 `npm run typecheck`、全量 `npm test` 与 PG 集成测试结果；回退先 revert 本条日志提交，再 revert 承载代码与计划的提交。纯新增 HTTP 层与路由，无新迁移；若本机业务库经新入口写入草稿，代码回退不影响已落盘文档，需按备份策略单独处理。
+
+### 2026-11-26 · 草稿与预览 HTTP 入口（完成）
+
+- **Agent**　WorkBuddy 自动化（每轮有界推进）。
+- **日期**　2026-11-26（Asia/Shanghai）。
+- **变更范围**　新增 `src/draft-api/handlers.ts`、`http.ts`、`draft-test-fixture.ts`、`handlers.test.ts`（10 项）与 `http.test.ts`（7 项）。`DraftAccessor` 让同步 `DraftManager` 与异步 `postgresDrafts` 共用 HTTP 无关校验；创建／列表／详情／revision 更新／取消／确认／预览列表／获取／流转／重试十类操作只从 `AuthContext` 取账号，请求体自报账号无效。形状错误 400，未登录 401，越权与不存在统一 404，revision 与 ID 冲突 409，领域校验及非法预览流转 422；幂等重放 `x-replayed: true`，全部响应 `no-store`。HTTP 层暴露 `POST/GET /api/drafts`、`GET/PATCH /api/drafts/:draftId`、cancel、confirm、previews 列表／获取与 `transition`／`retry` 动作，405 带 `Allow`，JSON 体积与媒体类型按既有口径映射；URL 路径段解码后交同一 handler。`src/server.ts` 用 `postgresDrafts(store.pool)` 按 `/api/drafts` 前缀分流。[plan.md](plan.md) 状态行与 P2 轨道已同步。未改 PRD、未新增迁移、未接 Runner／调度／真实登录、未触碰 `upstream/` 两份源码。
+- **原因与影响**　上一轮草稿与预览已落 PG 但只有适配层 API，向导前端无法调用。本轮补上可复现 HTTP 入口，归属、乐观并发、签名复用与按条重试继续由领域与 PG 事务负责，不改变已确认产品行为。未启动 Docker、未安装依赖、未调用真实模型。
+- **验证**　`npm run typecheck` 通过；新增两文件 17/17；全量 `npm test` → 250/250（原 233 + 17），无回归。覆盖自报账号无效、401/404/405/400/415/413/409/422、URL 编码 ID、列表归属与总数、revision 冲突与递增、确认载荷冻结且不写任务版本、取消幂等、同签名预览复用、最多三条、配置变化丢弃旧预览、失败重试与成功不可重试、撤销会话。新增 `tests/postgres.test.ts` 子场景经 `createPlatformServer` 走创建→冲突→更新→预览获取/复用/流转/重试→确认/重放，并检查 `drafts`/`draft_previews` 行数与跨账号隔离；**该 PG 集成场景本轮未执行**：本机 PostgreSQL 127.0.0.1:5432 返回 `ECONNREFUSED`，未启动 Docker 或 Database 服务，不臆造结果，待数据库恢复后补跑。
+- **变更引用**　`main`：代码、测试与 [plan.md](plan.md) 修订为提交 `54db2fd`；本条日志随后单独提交。上游 Coze Loop 仍为 `7a5ab1633eb30396928cd51017a63b456d117985`，DeepSeek Harness 仍为 `e8f7b93a344964de3dca1ace9e72b6e4d6de87cb`，二者均未改动。
+- **未解决问题**　P1 实机验证仍缺 Docker workspace、模型配置与受控样本；草稿接口未接向导界面、Runner 与调度，试评分最多两条及其缓存、定时回收与真实登录未做；PG 集成子场景待本机数据库恢复后补跑；上游认证与完整裁判 JSON 回读未实测。
+- **回退**　先 `git revert` 本条日志提交，再 revert `54db2fd`：移除 `src/draft-api/` 全部文件、还原 `src/server.ts` 分流与 `tests/postgres.test.ts` 新增子测试，并还原 plan.md 状态行与 P2 轨道；草稿领域、迁移版本 3、`postgresDrafts` 适配层，以及资源／导入／运行／结果读取接口不受影响。无新迁移与运行数据，纯代码回退不需要数据恢复；若本机业务库曾通过新入口写入草稿，已落盘文档按备份策略单独处理。
