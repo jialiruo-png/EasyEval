@@ -466,3 +466,7 @@
 - **变更引用**　`main`：代码、测试与 [plan.md](plan.md) 修订为提交 `54db2fd`；本条日志随后单独提交。上游 Coze Loop 仍为 `7a5ab1633eb30396928cd51017a63b456d117985`，DeepSeek Harness 仍为 `e8f7b93a344964de3dca1ace9e72b6e4d6de87cb`，二者均未改动。
 - **未解决问题**　P1 实机验证仍缺 Docker workspace、模型配置与受控样本；草稿接口未接向导界面、Runner 与调度，试评分最多两条及其缓存、定时回收与真实登录未做；PG 集成子场景待本机数据库恢复后补跑；上游认证与完整裁判 JSON 回读未实测。
 - **回退**　先 `git revert` 本条日志提交，再 revert `54db2fd`：移除 `src/draft-api/` 全部文件、还原 `src/server.ts` 分流与 `tests/postgres.test.ts` 新增子测试，并还原 plan.md 状态行与 P2 轨道；草稿领域、迁移版本 3、`postgresDrafts` 适配层，以及资源／导入／运行／结果读取接口不受影响。无新迁移与运行数据，纯代码回退不需要数据恢复；若本机业务库曾通过新入口写入草稿，已落盘文档按备份策略单独处理。
+
+### 2026-11-26 · 草稿与预览 HTTP 入口提交号
+
+- 本轮代码、`plan.md` 修订与测试为提交 `54db2fd`，完成记录为 `135cf25`，本条仅补记提交号。回退时先 revert 本条与 `135cf25`，再 revert `54db2fd`。
