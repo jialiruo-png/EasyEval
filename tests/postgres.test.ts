@@ -379,6 +379,95 @@ test('PostgreSQL 平台接口', async (t) => {
     }
   });
 
+  await t.test('草稿与预览 HTTP 入口：会话取账号、revision 冲突、签名复用、流转与跨账号隔离', async () => {
+    const scenario = { id: 'http-draft-scenario', version: 'v1' };
+    const dataset = { id: 'http-draft-ds', version: 'v1' };
+    const rule = { id: 'http-draft-rule', version: 'v1' };
+    assert.equal((await api('resources/scenario', a, { ...scenario, snapshot: {
+      name: 'HTTP 草稿场景', profile: 'harness', modelConfigRef: 'test', toolWhitelist: [],
+    } })).status, 201);
+    assert.equal((await api('imports/dataset', a, { ...dataset, name: 'HTTP 草稿样本',
+      queryColumn: 'query', csv: 'query\n第一条\n第二条' })).status, 201);
+    assert.equal((await api('resources/rule', a, { ...rule, snapshot: { ...processQualityRule, id: rule.id } })).status, 201);
+
+    async function req(method: string, path: string, token?: string, body?: unknown) {
+      const response = await fetch(base + '/api/' + path, {
+        method,
+        headers: { ...(token ? { authorization: 'Bearer ' + token } : {}), 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await response.text();
+      return {
+        status: response.status,
+        json: text ? JSON.parse(text) : null,
+        replayed: response.headers.get('x-replayed'),
+        cacheControl: response.headers.get('cache-control'),
+      };
+    }
+
+    const draftId = 'draft:http-1';
+    const createBody = {
+      id: draftId, name: 'HTTP 草稿', step: 1, scenario, dataset, rule,
+      ownerAccountId: 'B',
+      mappings: [{ placeholder: '{{query}}', source: 'dataset', path: 'query' }],
+    };
+    assert.equal((await req('POST', 'drafts', undefined, createBody)).status, 401);
+    const created = await req('POST', 'drafts', a, createBody);
+    assert.equal(created.status, 201);
+    assert.equal(created.json.ownerAccountId, 'A');
+    assert.equal(created.cacheControl, 'no-store');
+    const list = await req('GET', 'drafts', a);
+    assert.equal(list.json.total, 1);
+    assert.deepEqual((await req('GET', 'drafts', b)).json.items, []);
+    const missing = await req('GET', 'drafts/draft%3Anot-exist', a);
+    const other = await req('GET', 'drafts/' + encodeURIComponent(draftId), b);
+    assert.equal(other.status, 404);
+    assert.deepEqual(other.json, missing.json);
+
+    const path = 'drafts/' + encodeURIComponent(draftId);
+    const stale = await req('PATCH', path, a, { expectedRevision: 9, step: 2 });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.json.code, 'REVISION_CONFLICT');
+    const updated = await req('PATCH', path, a, { expectedRevision: 1, step: 2 });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.json.revision, 2);
+
+    const previewPath = path + '/previews';
+    const acquire = { sampleId: 'R000001', ownerAccountId: 'B' };
+    const first = await req('POST', previewPath, a, acquire);
+    assert.equal(first.status, 201);
+    const reused = await req('POST', previewPath, a, acquire);
+    assert.equal(reused.status, 200);
+    assert.equal(reused.replayed, 'true');
+    assert.equal(reused.json.key, first.json.key);
+    assert.equal((await req('GET', previewPath, a)).json.total, 1);
+    assert.equal((await req('GET', previewPath, b)).status, 404);
+    assert.equal((await req('POST', previewPath + '/R000001/transition', a, { status: 'running' })).status, 200);
+    assert.equal((await req('POST', previewPath + '/R000001/transition', a,
+      { status: 'failed', reason: 'trace 延迟' })).status, 200);
+    const retried = await req('POST', previewPath + '/R000001/retry', a);
+    assert.equal(retried.status, 200);
+    assert.equal(retried.json.attempts, 2);
+
+    const confirm = {
+      taskRef: { id: 'http-draft-task', version: 'v1' }, name: 'HTTP 确认任务',
+      idempotencyKey: 'http-confirm-1', expectedRevision: 2,
+    };
+    const confirmed = await req('POST', path + '/confirm', a, confirm);
+    assert.equal(confirmed.status, 200);
+    assert.equal(confirmed.json.sourceDraftId, draftId);
+    const confirmReplay = await req('POST', path + '/confirm', a, confirm);
+    assert.equal(confirmReplay.replayed, 'true');
+    assert.deepEqual(confirmReplay.json, confirmed.json);
+    assert.equal((await req('POST', path + '/confirm', b, confirm)).status, 404);
+
+    const rows = await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM drafts WHERE owner_id='A' AND id=$1", [draftId]);
+    assert.equal(Number(rows.rows[0].n), 1);
+    const previews = await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM draft_previews WHERE owner_id='A' AND draft_id=$1", [draftId]);
+    assert.equal(Number(previews.rows[0].n), 1);
+    assert.equal(Number((await pool.query<{ n: string }>("SELECT count(*)::text AS n FROM drafts WHERE owner_id='B'")).rows[0].n), 0);
+  });
+
   await t.test('结果和会话跨连接可读；撤销或过期即失效', async () => {
     await store.insertRun({ id: 'r1', ownerAccountId: 'A', taskId: 'task', datasetVersionId: 'v1',
       ruleVersionId: processQualityRule.version, rule: processQualityRule, samples: processQualitySamples,

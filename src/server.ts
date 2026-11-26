@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { handleDraftHttp, isDraftRoute } from './draft-api/http.ts';
 import { sendError, sendJson } from './http/json.ts';
 import { handleImportHttp } from './import-api/http.ts';
 import { handleResourceHttp } from './resource-api/http.ts';
@@ -6,18 +7,21 @@ import { handleResultHttp } from './result-api/http.ts';
 import { handleRunHttp, isRunIndexRoute } from './run-api/http.ts';
 import { listPostgresResources, postgresCatalogAccess } from './storage/postgres/catalog.ts';
 import { PostgresStore } from './storage/postgres/database.ts';
+import { postgresDrafts } from './storage/postgres/drafts.ts';
 import { postgresRunIndex } from './storage/postgres/run-index.ts';
 
 export function createPlatformServer(store: PostgresStore) {
   const access = postgresCatalogAccess(store.pool);
   const runs = postgresRunIndex(store.pool);
+  const drafts = postgresDrafts(store.pool);
   return createServer(async (req, res) => {
     try {
       const path = (req.url ?? '').split('?')[0];
       if (path === '/api/health' && req.method === 'GET') {
         await store.pool.query('SELECT 1');
         sendJson(res, 200, { status: 'ok', database: 'postgresql' });
-      } else if (path.startsWith('/api/resources/')) await handleResourceHttp(req, res, access, (owner, kind, query) => listPostgresResources(store.pool, owner, kind, query), store);
+      } else if (isDraftRoute(path)) await handleDraftHttp(req, res, drafts, store);
+      else if (path.startsWith('/api/resources/')) await handleResourceHttp(req, res, access, (owner, kind, query) => listPostgresResources(store.pool, owner, kind, query), store);
       else if (path.startsWith('/api/imports/')) await handleImportHttp(req, res, access, store);
       else if (path?.startsWith('/api/runs')) {
         if (isRunIndexRoute(path)) await handleRunHttp(req, res, runs, store);
