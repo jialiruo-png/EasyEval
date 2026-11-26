@@ -1,0 +1,1498 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent 评测平台 · 本地演示</title>
+<style>
+:root {
+  color-scheme: light;
+  --blue: #1664ff;
+  --blue-dark: #1255e0;
+  --blue-pale: #f0f5ff;
+  --ink: #1f2430;
+  --muted: #646b78;
+  --quiet: #737a87;
+  --line: #f0f0f0;
+  --border: #e8e9ec;
+  --input: #d9dce2;
+  --wash: #fafafa;
+  --green: #26734f;
+  --red: #ae3e38;
+  --amber: #806015;
+  --page: 24px;
+  font: 14px/1.55 "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: var(--blue-dark); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+header.site {
+  position: sticky; top: 0; z-index: 5; height: 62px; padding: 0 var(--page);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: #fff; border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 650; font-size: 16px; color: var(--ink); }
+.brand:hover { text-decoration: none; }
+.brand-mark { width: 26px; height: 26px; display: grid; place-items: center; background: var(--blue-pale); color: var(--blue-dark); border-radius: 4px; font: 700 12px/1 ui-monospace, monospace; }
+.header-tail { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.header-tail small { padding-left: 14px; border-left: 1px solid var(--border); font-size: inherit; }
+main { margin: 0 auto; padding: var(--page); max-width: 1640px; min-height: calc(100vh - 62px); }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.35px; overflow-wrap: anywhere; }
+h2 { font-size: 17px; line-height: 1.35; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 650; }
+p + p { margin-top: 7px; }
+.titlebar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 22px; }
+.titlebar .hint { margin-top: 6px; }
+.hint { color: var(--muted); font-size: 13px; }
+.subtle { color: var(--quiet); }
+.small { font-size: 12px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; }
+.nowrap { white-space: nowrap; }
+.wrap-any { overflow-wrap: anywhere; }
+strong { font-weight: 650; }
+.crumb { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+.crumb a { color: var(--muted); }
+.crumb span[aria-current] { color: var(--ink); }
+.tabs { display: flex; gap: 30px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; }
+.tab { color: var(--muted); border-bottom: 2px solid transparent; padding: 10px 1px 11px; font-size: 14px; white-space: nowrap; }
+.tab:hover { text-decoration: none; color: var(--blue-dark); }
+.tab.active { border-color: var(--blue); color: var(--blue-dark); font-weight: 650; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 34px; gap: 6px;
+  padding: 0 13px; border: 1px solid var(--input); border-radius: 4px; color: var(--ink);
+  background: #fff; white-space: nowrap; text-decoration: none; font-weight: 500;
+}
+.btn:hover { color: var(--blue-dark); border-color: #90b3ff; text-decoration: none; }
+.btn.primary { color: #fff; border-color: var(--blue); background: var(--blue); }
+.btn.primary:hover { background: var(--blue-dark); border-color: var(--blue-dark); }
+.btn:disabled { color: #777f8d; background: #f5f5f5; border-color: var(--border); }
+.btn.sm { min-height: 28px; padding: 0 9px; font-size: 12px; }
+.link { display: inline; border: 0; background: transparent; padding: 0; color: var(--blue-dark); font: inherit; text-align: left; }
+.link:hover { text-decoration: underline; }
+.link.neutral { color: #505a6a; }
+.link:disabled { color: #858c98; text-decoration: none; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+td .actions { gap: 14px; }
+.filters { display: flex; gap: 12px; margin: 0 0 16px; flex-wrap: wrap; align-items: end; }
+.filters label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.filters input, .filters select { min-width: 112px; max-width: 190px; }
+.filters input[type=date] { width: 128px; }
+input:not([type=checkbox], [type=radio]), select, textarea {
+  height: 34px; padding: 5px 10px; border: 1px solid var(--input); border-radius: 4px;
+  background: #fff; color: var(--ink); max-width: 100%; min-width: 0;
+}
+input::placeholder, textarea::placeholder { color: #79808d; }
+input[type=checkbox], input[type=radio] { accent-color: var(--blue); width: 15px; height: 15px; margin: 0; }
+input[readonly], select:disabled { background: #fafafa; color: var(--muted); }
+textarea { height: auto; resize: vertical; width: 100%; min-height: 78px; }
+input[type=file] { height: auto; width: 100%; }
+input[type=file]::file-selector-button { font: inherit; margin-right: 8px; }
+select { text-overflow: ellipsis; }
+.table-wrap { border: 1px solid var(--border); border-radius: 0; overflow-x: auto; max-width: 100%; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: middle; padding: 11px 15px; border-bottom: 1px solid var(--line); }
+th { background: #fafafa; font-weight: 600; white-space: nowrap; color: #3d4655; }
+td { min-height: 44px; }
+td:first-child a { font-weight: 550; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: #fafafa; }
+td.wrap { white-space: normal; overflow-wrap: anywhere; }
+.table-wrap .empty { text-align: center; padding: 34px 12px; color: var(--muted); }
+.manage th:nth-last-child(1) { min-width: 150px; }
+.manage th:nth-last-child(2) { min-width: 95px; }
+.manage th:nth-last-child(3) { min-width: 160px; }
+.table-note { margin-bottom: 9px; color: var(--muted); font-size: 12px; }
+.pager { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 14px; color: var(--muted); font-size: 12px; }
+.pager .current { color: var(--blue-dark); border-color: #adcbff; background: var(--blue-pale); font-variant-numeric: tabular-nums; }
+.stack { display: grid; gap: 12px; }
+.block { margin-top: 22px; }
+.section-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+.meta { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin: 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); gap: 12px 26px; }
+.meta dt { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+.meta dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; font-size: 12px; white-space: nowrap; background: #fff; color: #4c5564; }
+.tag.good { color: var(--green); border-color: #cde5d9; }
+.tag.warn { color: var(--amber); border-color: #ebe0bd; }
+.tag.bad { color: var(--red); border-color: #eed4d3; }
+.tag.info { color: var(--blue-dark); border-color: #c8d9ff; }
+.scores { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); border: 1px solid var(--border); padding: 16px 0; }
+.stat { min-width: 0; padding: 0 16px; border-right: 1px solid var(--border); }
+.stat:last-child { border: 0; }
+.stat-label { font-size: 12px; color: var(--muted); }
+.stat-value { display: block; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.3; margin: 3px 0; }
+.metric-count { min-width: 60px; }
+.metric-count .link { min-width: 22px; }
+.notice { background: #fafafa; border: 1px solid var(--border); padding: 10px 12px; color: #495264; font-size: 13px; }
+.notice.error { color: var(--red); border-color: #edd5d3; background: #fff; }
+.notice[hidden] { display: none; }
+.steps { margin: 0 0 23px; padding: 0 0 17px; list-style: none; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; border-bottom: 1px solid var(--border); }
+.steps li { display: flex; align-items: center; gap: 9px; color: var(--muted); min-width: 0; }
+.steps li:not(:last-child)::after { content: ""; flex: 1; min-width: 8px; margin-left: 4px; border-top: 1px solid var(--border); }
+.steps .current-step { color: var(--ink); font-weight: 650; }
+.step-index { display: grid; place-items: center; height: 25px; width: 25px; flex: 0 0 25px; border-radius: 50%; border: 1px solid var(--input); font-size: 12px; color: var(--muted); }
+.current-step .step-index { background: var(--blue); border-color: var(--blue); color: #fff; }
+.complete-step .step-index { background: var(--blue-pale); border-color: #c8d9ff; color: var(--blue-dark); }
+.wizard-body { min-height: 285px; }
+.form-row { display: grid; grid-template-columns: minmax(104px,145px) minmax(0,680px); align-items: start; gap: 12px; border-bottom: 1px solid var(--line); padding: 13px 0; }
+.form-row:last-child { border-bottom: 0; }
+.field-label { display: block; font-size: 13px; margin-top: 6px; font-weight: 550; }
+.required { color: var(--red); margin-right: 5px; }
+.field { display: grid; gap: 5px; min-width: 0; }
+.field > input, .field > select { width: 100%; }
+.field .hint { font-size: 12px; }
+.check-line { display: flex; align-items: center; min-height: 34px; gap: 8px; }
+.form-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 14px; }
+.subform { margin-top: 14px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--border); padding: 12px; margin: 0; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #fafafa; }
+details { font-size: 13px; color: var(--ink); }
+details > summary { cursor: pointer; padding: 6px 0; font-weight: 550; }
+details[open] > summary { margin-bottom: 4px; }
+#overlay:empty { display: none; }
+.scrim { position: fixed; inset: 0; z-index: 10; background: rgb(20 26 40 / 26%); }
+.drawer, .dialog { position: fixed; z-index: 11; display: flex; flex-direction: column; background: #fff; border: 1px solid var(--border); }
+.drawer { inset: 0 0 0 auto; width: min(50vw, 850px); min-width: min(540px, 100vw); }
+.drawer.narrow { width: 34vw; min-width: min(450px, 100vw); }
+.dialog { left: 50%; top: 23%; transform: translateX(-50%); width: min(440px, calc(100% - 32px)); }
+.overlay-head { padding: 16px var(--page); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); gap: 12px; }
+.overlay-body { padding: 14px var(--page) 20px; overflow: auto; }
+.drawer .overlay-body { flex: 1; }
+.overlay-footer { padding: 12px var(--page); border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+body.has-overlay { overflow: hidden; }
+.toast { position: fixed; z-index: 20; inset: 12px auto auto 50%; transform: translateX(-50%); background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 8px 15px; box-shadow: 0 2px 8px rgb(24 38 60 / 9%); max-width: calc(100vw - 24px); }
+.trace-grid { display: grid; grid-template-columns: minmax(260px, 32%) minmax(0,1fr); border: 1px solid var(--border); min-height: 430px; }
+.trace-list { border-right: 1px solid var(--border); min-width: 0; }
+.trace-list-heading { background: #fafafa; border-bottom: 1px solid var(--line); padding: 9px 13px; color: var(--muted); font-size: 12px; }
+.span-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 9px; border: 0; border-bottom: 1px solid var(--line); background: #fff; padding: 9px 11px; width: 100%; text-align: left; color: var(--ink); }
+.span-row:hover { background: #fafafa; }
+.span-row.selected { background: var(--blue-pale); box-shadow: inset 2px 0 var(--blue); }
+.span-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; }
+.span-detail { padding: 15px; min-width: 0; }
+.trace-time { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-label { padding: 7px 11px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.timeline { border-left: 1px solid #d9e1ee; padding-left: 13px; }
+.timeline .span-row { position: relative; }
+.timeline .span-row::before { content: ""; position: absolute; left: -17px; top: 15px; background: #fff; border: 1px solid #9aa9bf; width: 6px; height: 6px; border-radius: 50%; }
+.elapsed { height: 3px; background: #dbe7ff; margin-top: 6px; border-radius: 0; }
+.ellipsis { max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 840px) {
+  :root { --page: 16px; }
+  .meta { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .drawer, .drawer.narrow { width: min(100%, 580px); }
+  .filters { gap: 8px; }
+  .trace-grid { grid-template-columns: 1fr; }
+  .trace-list { border-right: 0; border-bottom: 1px solid var(--border); }
+  .scores { grid-template-columns: repeat(3,1fr); row-gap: 12px; }
+  .stat:nth-child(3) { border: 0; }
+}
+@media (max-width: 510px) {
+  .header-tail small { display: none; }
+  .titlebar { flex-wrap: wrap; }
+  h1 { font-size: 22px; }
+  .steps { gap: 7px; font-size: 12px; }
+  .steps li { gap: 4px; }
+  .steps li::after { display: none; }
+  .step-index { height: 20px; width: 20px; flex-basis: 20px; }
+  .form-row { grid-template-columns: 1fr; gap: 5px; }
+  .field-label { margin: 0; }
+  .scores { grid-template-columns: repeat(2,1fr); }
+  .stat:nth-child(3) { border-right: 1px solid var(--border); }
+  .stat:nth-child(even) { border: 0; }
+  .stat-value { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+<header class="site">
+  <a class="brand" href="#/manage/tasks"><span class="brand-mark" aria-hidden="true">EV</span>Agent 评测平台</a>
+  <div class="header-tail"><span class="tag">本地演示</span><small>Coze Loop</small></div>
+</header>
+<main id="app" aria-label="评测工作区"></main>
+<div id="overlay"></div>
+<div id="announcer" role="status" aria-live="polite"></div>
+<script>
+'use strict';
+
+
+const app = document.querySelector('#app');
+const overlay = document.querySelector('#overlay');
+const announcer = document.querySelector('#announcer');
+const storageKey = 'coze-loop-eval-demo-v1';
+const stepNames = ['任务配置', '创建数据集', '评测规则', '任务确认'];
+const kinds = {
+  tasks: { tab: '评测任务', item: '任务', prefix: 'TASK', title: '评测任务', note: '配置单轮评测任务，管理运行批次与评测历史。' },
+  datasets: { tab: '数据集', item: '数据集', prefix: 'DATA', title: '数据集', note: '管理评测样本及其导入快照。' },
+  rules: { tab: '评测规则', item: '规则', prefix: 'RULE', title: '评测规则', note: '管理裁判 Prompt、输入变量与结果字段映射。' }
+};
+const sources = ['Excel', 'CSV', '飞书表格导出', 'SQL 查询结果'];
+const dimensions = ['步骤拆解合理', '工具选择正确', '参数填充正确', '工具调用成功'];
+const labels = { Pass: 'Pass', Fail: 'Fail', NA: 'NA', scored: '已评分', na: '无适用项', evidence: '证据缺失', invalid: '评分失败', waiting: '等待评分', canceled: '已取消' };
+const grades = [
+  ['Pass', 'Pass', 'Fail', 'Pass'],
+  ['NA', 'NA', 'NA', 'Fail'],
+  ['NA', 'NA', 'NA', 'NA']
+];
+const queries = [
+  ['读取 tests/fixtures/settings.json，告诉我重试上限。', '重试上限为 3。'],
+  ['读取 tests/fixtures/limits.json，列出超时时间。', '超时时间为 30 秒。'],
+  ['把「评测结果已就绪」翻译成英文。', 'The evaluation results are ready.'],
+  ['检查 tests/fixtures/features.json 里是否启用了缓存。', '缓存已启用。'],
+  ['读取 tests/fixtures/regions.json，列出支持的地区。', '支持 cn、sg 两个地区。']
+];
+const fixtureRows = queries.map(([query, expected], i) => ({ id: 'CASE-' + String(i + 1).padStart(3, '0'), query, expected }));
+const standardSchema = { scorePath: 'primary_dimension.total_score', reasonPath: 'primary_dimension.reason', metricPath: 'secondary_dimensions', key: 'name', value: 'result', max: 1 };
+const alternateSchema = { scorePath: 'evaluation.total', reasonPath: 'evaluation.comment', metricPath: 'evaluation.checks', key: 'id', value: 'grade', max: 1 };
+const standardVariables = ['query', 'tool_status'];
+const defaultPrompt = '请根据用户问题 {{query}} 和工具调用状态 {{tool_status}}，评估可观察到的执行过程。逐项判定步骤拆解、工具选择、参数填充和工具调用是否满足标准，按约定 JSON 输出总分、各项判定和理由。无适用项时总分为 null。';
+
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const byId = (kind, id) => state[kind].find((entry) => entry.id === id);
+const ruleAt = (record, version = record.version) => version === record.version ? record : record.history?.find((item) => item.version === version) || record;
+const datasetCell = (row, key) => (row.fields || row)[key];
+function makeRule(id, name, date, schema = standardSchema) {
+  return { id, name, date, owner: '评测管理员', version: 1, prompt: defaultPrompt, variables: standardVariables, schema, metrics: dimensions, history: [] };
+}
+function makeDataset(id, name, date, source, rows) {
+  return { id, name, date, owner: '评测管理员', source, version: 1, queryKey: 'query', columns: ['query', 'expected'], rows };
+}
+function initial() {
+  const rule = makeRule('RULE-001', '过程质量', '2026-11-19 16:40');
+  const alt = makeRule('RULE-002', '过程质量 · 自定义 JSON', '2026-11-18 14:08', alternateSchema);
+  const dataset = makeDataset('DATA-001', 'Harness 过程质量固定集', '2026-11-19 15:30', 'CSV', fixtureRows);
+  const taskSpecs = [
+    ['TASK-006', '过程质量回归评测', '2026-11-20 14:36', '评测管理员', 'DATA-001', 'RULE-001'],
+    ['TASK-005', '工具调用稳定性检查', '2026-11-20 10:18', 'Agent 开发', 'DATA-001', 'RULE-001'],
+    ['TASK-004', '基础问答样本评测', '2026-11-19 16:42', '评测管理员', 'DATA-002', 'RULE-001'],
+    ['TASK-003', '自定义 JSON 输出验证', '2026-11-19 11:06', 'Agent 开发', 'DATA-001', 'RULE-002'],
+    ['TASK-002', '规则映射验证', '2026-11-18 15:28', '评测管理员', 'DATA-003', 'RULE-002'],
+    ['TASK-001', 'Harness 单轮冒烟评测', '2026-11-18 09:15', 'Agent 开发', 'DATA-002', 'RULE-001']
+  ];
+  const tasks = taskSpecs.map(([id, name, date, owner, datasetId, ruleId], i) => ({
+    id, name, date, owner, datasetId, ruleId, ruleVersion: 1, version: 1, scene: 'DeepSeek Harness',
+    mappings: { query: 'dataset:query', tool_status: 'trace:tool.result.status' },
+    schedule: i === 1 ? { frequency: '每天', time: '09:00', day: '周一' } : null
+  }));
+  return {
+    tasks, datasets: [
+      dataset,
+      makeDataset('DATA-002', '单轮问答样本', '2026-11-18 11:20', 'Excel', fixtureRows.slice(0, 3)),
+      makeDataset('DATA-003', '工具事件样本', '2026-11-18 10:04', '飞书表格导出', fixtureRows.slice(3))
+    ],
+    rules: [rule, alt],
+    runs: [
+      makeRun('RUN-002', tasks[0], dataset, rule, '手动', '2026-11-20 15:20'),
+      makeRun('RUN-001', tasks[3], dataset, alt, '手动', '2026-11-19 11:20')
+    ],
+    counts: { tasks: 6, datasets: 3, rules: 2, runs: 2 },
+    draft: null
+  };
+}
+function readState() {
+  try {
+    const data = JSON.parse(localStorage.getItem(storageKey));
+    if (data?.tasks && data?.counts) return data;
+  } catch {}
+  return initial();
+}
+let state = readState();
+let activeModal = null;
+let toastTimer;
+let previewTimer;
+let trialTimer;
+const loadingRuns = new Map();
+const manageSettings = {};
+const resultSettings = {};
+const traceSettings = {};
+const pageSize = 5;
+
+function save() {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(state));
+  } catch {}
+}
+function stamp() {
+  const date = new Date();
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).format(date);
+  return parts.replace(',', '');
+}
+function nextId(kind) {
+  const n = ++state.counts[kind];
+  return (kinds[kind]?.prefix || 'RUN') + '-' + String(n).padStart(3, '0');
+}
+function allocateEntry(kind, fields) {
+  return { ...fields, id: nextId(kind), date: stamp(), owner: '当前用户', archived: false };
+}
+function setPath(obj, path, value) {
+  const keys = path.split('.');
+  for (const key of keys.slice(0, -1)) {
+    if (!Object.hasOwn(obj, key)) Object.defineProperty(obj, key, { value: {}, enumerable: true, writable: true });
+    if (typeof obj[key] !== 'object' || obj[key] === null) return;
+    obj = obj[key];
+  }
+  Object.defineProperty(obj, keys.at(-1), { value, enumerable: true, writable: true, configurable: true });
+}
+function getPath(value, path) {
+  return path.split('.').reduce((node, key) => node != null && Object.hasOwn(node, key) ? node[key] : undefined, value);
+}
+function makeJudgment(rule, i) {
+  if (i === 3) return { status: 'evidence', score: null, metrics: {}, error: '必需的工具执行记录采集未完成，无法确认工具是否调用。' };
+  if (i === 4) return { status: 'invalid', score: null, metrics: {}, error: '裁判响应 JSON 解析失败 · 在输出结尾缺少闭合括号。', raw: '{"primary_dimension":{"total_score":0.5' };
+  const enums = grades[i % grades.length];
+  const values = rule.metrics.map((name, index) => ({ [rule.schema.key]: name, [rule.schema.value]: enums[index % enums.length] }));
+  const applicable = values.filter((item) => item[rule.schema.value] !== 'NA');
+  const score = applicable.length ? rule.schema.max * applicable.filter((item) => item[rule.schema.value] === 'Pass').length / applicable.length : null;
+  const reason = [
+    '步骤、工具选择与执行符合标准，但路径使用了 defaults.json，与查询要求的 settings.json 不符。',
+    '采集完整，未发现此任务要求的文件读取调用。',
+    '输入仅要求翻译。本规则的过程维度均不适用。'
+  ][i % grades.length];
+  const json = { redline_fail_hits: [] };
+  const ordered = i === 0 ? [values.at(-1), ...values.slice(0,-1)] : values;
+  setPath(json, rule.schema.scorePath, score);
+  setPath(json, rule.schema.reasonPath, reason);
+  setPath(json, rule.schema.metricPath, ordered);
+  const parsed = getPath(json, rule.schema.metricPath);
+  const metrics = Object.fromEntries(rule.metrics.map((name) => [name, parsed.find((item) => item[rule.schema.key] === name)?.[rule.schema.value]]));
+  return { status: score === null ? 'na' : 'scored', score, reason, metrics, json };
+}
+function makeSample(row, rule, i, runId) {
+  return {
+    id: row.id, query: row.query, answer: row.expected || '已完成该条演示样本，结果见轨迹。',
+    elapsed: [3264, 1580, 825, 2905, 2168][i % 5], tokens: [742, 398, 184, 617, 481][i % 5],
+    runId, i, ...makeJudgment(rule, i % 5)
+  };
+}
+function makeRun(id, task, dataset, rule, trigger, date, rows = dataset.rows) {
+  return {
+    id, taskId: task.id, taskName: task.name, taskVersion: task.version, date, trigger, phase: 'done',
+    dataset: { id: dataset.id, name: dataset.name, version: dataset.version },
+    rule: { id: rule.id, name: rule.name, version: rule.version, schema: clone(rule.schema), metrics: clone(rule.metrics) },
+    samples: rows.map((row, i) => {
+      const sample = makeSample(row, rule, i, id);
+      if (!task.mappings || id === 'preview') return sample;
+      sample.inputs = Object.fromEntries(rule.variables.map((name) => [name, mappedValue(task.mappings[name], sample, row) ?? null]));
+      const missing = Object.entries(sample.inputs).filter(([, value]) => value === null).map(([name]) => name);
+      if (missing.length && ['scored', 'na'].includes(sample.status)) {
+        return { ...sample, status:'evidence', score:null, metrics:{}, json:null, reason:null, error:'必需占位符缺少取值：' + missing.join('、') };
+      }
+      return sample;
+    })
+  };
+}
+function batchResult(run) {
+  const scored = run.samples.filter((sample) => sample.status === 'scored' && typeof sample.score === 'number');
+  const count = (status) => run.samples.filter((sample) => sample.status === status).length;
+  const fail = count('evidence') + count('invalid');
+  return {
+    total: run.samples.length, scored: scored.length, na: count('na'), fail, evidence: count('evidence'), waiting: count('waiting'), canceled: count('canceled'),
+    mean: scored.length ? scored.reduce((sum, sample) => sum + sample.score, 0) / scored.length : null
+  };
+}
+function formatScore(score, max) {
+  if (score == null) return '—';
+  return max === 1 ? new Intl.NumberFormat('zh-CN', { style: 'percent', maximumFractionDigits: 2 }).format(score)
+    : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(score);
+}
+function tag(text, tone = '') { return `<span class="tag ${tone}">${esc(text)}</span>`; }
+function statusTag(status) {
+  const tone = { Pass: 'good', Fail: 'bad', scored: 'good', evidence: 'warn', invalid: 'bad', waiting: 'info' }[status];
+  return tag(labels[status] || status, tone);
+}
+function action(text, name, attrs = '', style = '') {
+  return `<button type="button" class="btn ${style}" data-action="${name}" ${attrs}>${esc(text)}</button>`;
+}
+function linkAction(text, name, attrs = '', neutral = false) {
+  return `<button type="button" class="link${neutral ? ' neutral' : ''}" data-action="${name}" ${attrs}>${esc(text)}</button>`;
+}
+function link(text, path, css = '') { return `<a class="${css}" href="#/${esc(path)}">${esc(text)}</a>`; }
+function breadcrumb(items) {
+  return `<nav class="crumb" aria-label="面包屑">${items.map(([label, path], i) => (
+    (i ? '<span aria-hidden="true">/</span>' : '') + (path ? link(label, path) : `<span aria-current="page">${esc(label)}</span>`)
+  )).join('')}</nav>`;
+}
+function titlebar(title, text = '', actions = '') {
+  return `<div class="titlebar"><div><h1>${esc(title)}</h1>${text ? `<p class="hint">${esc(text)}</p>` : ''}</div>${actions ? `<div class="actions">${actions}</div>` : ''}</div>`;
+}
+function table(headers, rows, empty = '暂无记录', css = '') {
+  return `<div class="table-wrap ${css}" tabindex="0" aria-label="可横向滚动的表格"><table>
+    <thead><tr>${headers.map((label) => `<th scope="col">${esc(label)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length ? rows.map((cells) => `<tr>${cells.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}" class="empty">${esc(empty)}</td></tr>`}</tbody>
+  </table></div>`;
+}
+function pairs(data) {
+  return `<dl class="meta">${data.map(([key, value]) => `<div><dt>${esc(key)}</dt><dd>${value}</dd></div>`).join('')}</dl>`;
+}
+function option(value, label, selected) {
+  return `<option value="${esc(value)}"${String(value) === String(selected) ? ' selected' : ''}>${esc(label)}</option>`;
+}
+function selectField(name, options, selected, extra = '') {
+  return `<select id="${esc(name)}" name="${esc(name)}" ${extra}>${options.map(([value, label]) => option(value, label, selected)).join('')}</select>`;
+}
+function inputField(name, value, attrs = '') {
+  return `<input id="${esc(name)}" name="${esc(name)}" value="${esc(value)}" ${attrs}>`;
+}
+function formRow(label, id, html, required = false, hint = '') {
+  return `<div class="form-row"><label class="field-label" for="${esc(id)}">${required ? '<span class="required" aria-hidden="true">*</span>' : ''}${esc(label)}</label><div class="field">${html}${hint ? `<p class="hint">${esc(hint)}</p>` : ''}</div></div>`;
+}
+function pre(value) {
+  return `<pre>${esc(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre>`;
+}
+function notice(text, error = false) {
+  return `<p class="notice${error ? ' error' : ''}"${error ? ' role="alert"' : ''}>${esc(text)}</p>`;
+}
+function toast(message) {
+  announcer.innerHTML = `<div class="toast">${esc(message)}</div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { announcer.textContent = ''; }, 2500);
+}
+function pager(total, current, group) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return `<div class="pager"><span>共 ${total} 条</span>${action('上一页','page',`data-group="${group}" data-page="${current - 1}" ${current <= 1 ? 'disabled' : ''}`,'sm')}<span class="btn sm current" aria-current="page">${current} / ${pages}</span>${action('下一页','page',`data-group="${group}" data-page="${current + 1}" ${current >= pages ? 'disabled' : ''}`,'sm')}</div>`;
+}
+function pathParts() {
+  return location.hash.slice(2).split('/').map((part) => {
+    try { return decodeURIComponent(part); } catch { return part; }
+  });
+}
+function go(path) {
+  const hash = '#/' + path;
+  if (location.hash === hash) render();
+  else {
+    history.pushState(null, '', hash);
+    window.scrollTo(0,0);
+    render();
+  }
+}
+function render() {
+  if (activeModal) closeModal(false);
+  const [page, id, sampleId, view, spanId] = pathParts();
+  if (page === 'wizard') app.innerHTML = wizardPage();
+  else if (page === 'task') app.innerHTML = taskPage(id);
+  else if (page === 'dataset') app.innerHTML = datasetPage(id);
+  else if (page === 'rule') app.innerHTML = rulePage(id);
+  else if (page === 'run') {
+    app.innerHTML = resultPage(id);
+    if (sampleId) openSample(id, sampleId);
+  } else if (page === 'trace') app.innerHTML = tracePage(id, sampleId, view, spanId);
+  else app.innerHTML = managePage(Object.hasOwn(kinds, id) ? id : 'tasks');
+}
+function notFound(text = '该记录不存在或已过期。') {
+  return titlebar('找不到记录', text, link('返回评测任务', 'manage/tasks', 'btn'));
+}
+
+
+function managePage(kind) {
+  const def = kinds[kind];
+  const settings = manageSettings[kind] ||= { page: 1, filters: {} };
+  const filters = settings.filters;
+  const records = state[kind].filter((entry) => !entry.archived);
+  const filtered = records.filter((entry) => {
+    const date = entry.date.slice(0, 10);
+    return ['name', 'id', 'owner'].every((key) => entry[key].toLowerCase().includes((filters[key] || '').trim().toLowerCase()))
+      && (!filters.from || date >= filters.from) && (!filters.to || date <= filters.to);
+  }).sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const page = settings.page = Math.min(Math.max(1, Math.ceil(filtered.length / pageSize)), settings.page);
+  const names = Object.entries(kinds).map(([key, { tab }]) => (
+    `<a href="#/manage/${key}" class="tab${kind === key ? ' active' : ''}"${kind === key ? ' aria-current="page"' : ''}>${tab}</a>`
+  )).join('');
+  const singular = { tasks: 'task', datasets: 'dataset', rules: 'rule' }[kind];
+  const rows = filtered.slice((page - 1) * pageSize, page * pageSize).map((entry) => {
+    const attrs = `data-kind="${kind}" data-id="${entry.id}"`;
+    return [
+      `<span class="mono subtle nowrap">${entry.id}</span>`,
+      link(entry.name, `${singular}/${entry.id}`),
+      kind === 'tasks' ? esc(entry.scene) : kind === 'datasets' ? esc(entry.source) : `v${entry.version}`,
+      `<span class="num nowrap">${esc(entry.date)}</span>`, esc(entry.owner),
+      `<div class="actions nowrap">${linkAction('复制', 'copy', attrs, true)}${kind !== 'datasets' ? linkAction('修改', 'edit', attrs, true) : ''}${linkAction('删除', 'delete', attrs, true)}</div>`
+    ];
+  });
+  return titlebar(def.title, def.note, kind === 'tasks'
+    ? link('新建任务', 'wizard', 'btn primary')
+    : action('新建' + def.item, 'new-item', `data-kind="${kind}"`, 'primary'))
+    + `<nav class="tabs" aria-label="评测管理">${names}</nav>
+      <form class="filters" data-form="manage" data-kind="${kind}">
+        <label>${def.item}名称${inputField('name', filters.name, 'placeholder="输入名称" maxlength="80"')}</label>
+        <label>${def.item} ID${inputField('id', filters.id, `placeholder="输入 ${def.item} ID" maxlength="30"`)}</label>
+        <label>创建人${selectField('owner', [['','全部创建人'], ...Array.from(new Set(records.map((entry) => entry.owner))).map((owner) => [owner,owner])], filters.owner || '')}</label>
+        <label>创建起日${inputField('from', filters.from, 'type="date"')}</label>
+        <label>创建止日${inputField('to', filters.to, 'type="date"')}</label>
+        <button class="btn" type="submit">查询</button>
+        ${action('重置', 'reset-manage', `data-kind="${kind}"`)}
+      </form>
+      <p class="table-note">按创建时间倒序</p>
+      ${table([def.item + ' ID', def.item + '名称', { tasks: '评测场景', datasets: '来源', rules: '版本' }[kind], '创建时间', '创建人', '操作'], rows, '没有匹配的' + def.item, 'manage')}
+      ${pager(filtered.length, page, 'manage:' + kind)}`;
+}
+function scheduleText(schedule) {
+  return schedule ? `${schedule.frequency} ${schedule.frequency === '每周' ? schedule.day + ' ' : ''}${schedule.time}（Asia/Shanghai）` : '未启用';
+}
+function runStatus(run) {
+  if (run.phase === 'running') return tag('运行中', 'info');
+  if (run.phase === 'canceled') return tag('已取消');
+  return batchResult(run).fail ? tag('部分失败', 'warn') : tag('已完成', 'good');
+}
+function taskPage(id) {
+  const task = byId('tasks', id);
+  if (!task) return notFound();
+  const dataset = byId('datasets', task.datasetId);
+  const rule = byId('rules', task.ruleId);
+  const runs = state.runs.filter((run) => run.taskId === id).sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const runRows = runs.map((run) => [
+    link(run.id, 'run/' + run.id, 'mono'), esc(run.trigger), runStatus(run), esc(run.date),
+    `<span class="num">${run.samples.filter((sample) => sample.status !== 'waiting').length} / ${run.samples.length}</span>`,
+    `<strong class="num">${formatScore(batchResult(run).mean, run.rule.schema.max)}</strong>`,
+    link('查看结果', 'run/' + run.id)
+  ]);
+  const attrs = `data-kind="tasks" data-id="${id}"`;
+  return breadcrumb([['评测任务','manage/tasks'], [task.name]])
+    + titlebar(task.name, task.id + ' · 配置 v' + task.version, task.archived ? tag('已归档') : [
+      action('修改任务','edit', attrs),
+      task.schedule ? action('停用定时','disable-schedule', attrs) : '',
+      action('手动运行','run', attrs + (runs.some((run) => run.phase === 'running') ? ' disabled' : ''), 'primary')
+    ].join(''))
+    + pairs([
+      ['评测场景', esc(task.scene)], ['评测类型','单轮会话'], ['创建人',esc(task.owner)], ['创建时间',esc(task.date)],
+      ['数据集',dataset ? link(dataset.name + ' · v' + dataset.version,'dataset/' + dataset.id) : '—'],
+      ['评测规则',rule ? link(ruleAt(rule, task.ruleVersion).name + ' · v' + task.ruleVersion,'rule/' + rule.id + '/' + task.ruleVersion) : '—'],
+      ['周期调度',esc(scheduleText(task.schedule))]
+    ])
+    + `<section class="block"><div class="section-head"><h2>运行历史</h2><span class="hint">共 ${runs.length} 个批次</span></div>
+      ${table(['批次 ID','触发方式','运行状态','触发时间','完成进度','样本均分','操作'], runRows, '暂无运行批次，可手动启动一次评测。')}</section>`;
+}
+function datasetPage(id) {
+  const dataset = byId('datasets',id);
+  if (!dataset) return notFound();
+  return breadcrumb([['数据集','manage/datasets'], [dataset.name]]) + titlebar(dataset.name, dataset.id + ' · v' + dataset.version)
+    + pairs([['来源',esc(dataset.source)], ['文件',esc(dataset.filename || '内置演示样本')], ['样本数',dataset.rows.length], ['查询字段',esc(dataset.queryKey)]])
+    + `<section class="block"><div class="section-head"><h2>数据预览</h2><span class="hint">前 ${Math.min(dataset.rows.length, 10)} 条样本</span></div>
+      ${table(['样本 ID', ...dataset.columns], dataset.rows.slice(0,10).map((row) => [
+        `<span class="mono">${esc(row.id)}</span>`, ...dataset.columns.map((key) => `<span class="wrap-any">${esc(datasetCell(row,key))}</span>`)
+      ]))}</section>`;
+}
+function rulePage(id) {
+  const record = byId('rules',id);
+  if (!record) return notFound();
+  const rule = ruleAt(record, Number(pathParts()[2]) || record.version);
+  return breadcrumb([['评测规则','manage/rules'], [rule.name]]) + titlebar(rule.name, rule.id + ' · v' + rule.version,
+    !record.archived ? action('修改规则','edit',`data-kind="rules" data-id="${id}"`) : tag('已归档'))
+    + pairs([['评估器','Prompt 评估器'], ['输入变量',esc(rule.variables.join('、'))], ['总分字段',esc(rule.schema.scorePath)], ['分值范围','0 – ' + rule.schema.max]])
+    + `<section class="block stack"><h2>规则 Prompt</h2>${pre(rule.prompt)}<h2>结果映射</h2>
+      ${table(['指标','数组路径','业务键','结果键'], rule.metrics.map((metric) => [esc(metric),esc(rule.schema.metricPath),esc(rule.schema.key),esc(rule.schema.value)]))}
+      <details><summary>示例业务 JSON</summary>${pre(makeJudgment(rule,0).json)}</details></section>`;
+}
+function openModal(title, body, { narrow = false, dialog = false, submit = '', confirm = '', footer = '' } = {}) {
+  if (activeModal) closeModal(false);
+  activeModal = { restoreFocus: document.activeElement };
+  overlay.innerHTML = `<div class="scrim" data-action="close"></div>
+    <section class="${dialog ? 'dialog' : 'drawer' + (narrow ? ' narrow' : '')}" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+      <div class="overlay-head"><h2 id="overlay-title">${esc(title)}</h2>${action('关闭','close','','sm')}</div>
+      <div class="overlay-body">${body}</div>
+      ${submit || footer ? `<div class="overlay-footer">${action('取消','close')}${submit ? `<button class="btn primary" type="submit" form="${submit}">${esc(confirm || '确认')}</button>` : footer}</div>` : ''}
+    </section>`;
+  app.inert = true;
+  document.querySelector('header').inert = true;
+  document.body.classList.add('has-overlay');
+  overlay.querySelector('input, select, textarea, .overlay-head button')?.focus();
+}
+function closeModal(restore = true) {
+  if (!activeModal) return;
+  const previous = activeModal;
+  activeModal = null;
+  overlay.textContent = '';
+  app.inert = false;
+  document.querySelector('header').inert = false;
+  document.body.classList.remove('has-overlay');
+  if (restore && previous.restoreFocus?.isConnected) previous.restoreFocus.focus();
+}
+function overlayMessage(form, text) {
+  const field = form.querySelector('[data-error]');
+  field.hidden = false;
+  field.textContent = text;
+  field.focus();
+}
+function formError() { return '<p class="notice error" role="alert" tabindex="-1" data-error hidden></p>'; }
+function copyEntry(kind,id) {
+  const entry = byId(kind,id);
+  if (!entry) return;
+  const copy = allocateEntry(kind, {
+    ...clone(entry), name: entry.name + '（副本）', version: 1,
+    ...(kind === 'tasks' ? { schedule: null } : {}), ...(kind === 'rules' ? { history: [] } : {})
+  });
+  state[kind].push(copy);
+  save();
+  if (manageSettings[kind]) manageSettings[kind].page = 1;
+  render();
+  toast('已复制');
+}
+function confirmArchive(kind,id) {
+  const entry = byId(kind,id);
+  const references = state.tasks.filter((task) => !task.archived &&
+    ((kind === 'datasets' && task.datasetId === id) || (kind === 'rules' && task.ruleId === id)));
+  if (references.length) {
+    openModal('暂时无法删除', notice('仍被任务引用：' + references.map((task) => task.name).join('、')), { dialog: true });
+    return;
+  }
+  if (kind === 'tasks' && state.runs.some((run) => run.taskId === id && run.phase === 'running')) {
+    openModal('暂时无法删除', notice('请先等待运行结束，或在结果页取消本批。'), { dialog: true });
+    return;
+  }
+  openModal('删除' + kinds[kind].item, `<p>确定删除「${esc(entry.name)}」？删除后从管理列表中归档，历史批次仍可查看。</p>`, {
+    dialog: true, footer: action('确认删除','archive',`data-kind="${kind}" data-id="${id}"`,'primary')
+  });
+}
+function taskFields(config) {
+  const schedule = config.schedule;
+  return formRow('任务名称', 'taskName', inputField('taskName', config.name, 'placeholder="例如：过程质量回归评测" maxlength="80" required'), true)
+    + formRow('评测场景','scene', selectField('scene',[['','选择评测场景'], ['DeepSeek Harness','DeepSeek Harness']],config.scene,'required'),true,'使用隔离评测配置与测试工具。')
+    + formRow('评测类型','taskType', selectField('taskType',[['single','单轮会话'], ['multi','多轮会话（后续支持）']], 'single','disabled'))
+    + formRow('定时任务','scheduled',`<label class="check-line"><input id="scheduled" name="scheduled" type="checkbox" ${schedule ? 'checked' : ''} data-reveal="schedule-details">启用定时任务</label><div id="schedule-details" ${schedule ? '' : 'hidden'}><div class="actions">${selectField('frequency',[['每天','每天'],['每周','每周']],schedule?.frequency || '每天','data-frequency') }${selectField('day',['周一','周二','周三','周四','周五','周六','周日'].map((day) => [day,day]), schedule?.day || '周一', schedule?.frequency === '每周' ? '' : 'hidden')}${inputField('runTime',schedule?.time || '09:00','type="time" aria-label="执行时间"')}<span class="hint">Asia/Shanghai</span></div></div>`)
+    + formRow('对比评测','comparison','<label class="check-line"><input id="comparison" type="checkbox" disabled>后续支持</label>')
+    + formRow('运行通知','notify', selectField('notify',[['none','未启用（飞书／企业微信后续支持）']], 'none','disabled'));
+}
+function fieldConfig(form) {
+  const data = new FormData(form);
+  return {
+    name: String(data.get('taskName') || '').trim(), scene: data.get('scene'),
+    schedule: data.get('scheduled') ? {
+      frequency: data.get('frequency'), day: data.get('day'), time: data.get('runTime')
+    } : null
+  };
+}
+function datasetOptions(archivedId) {
+  return [['','请选择数据集'], ...state.datasets.filter((item) => !item.archived || item.id === archivedId).map((item) => [item.id,item.name + ' · v' + item.version])];
+}
+function ruleOptions(task) {
+  const active = state.rules.filter((item) => !item.archived || task?.ruleId === item.id);
+  return [['','请选择评测规则'], ...active.flatMap((item) => [item, ...(item.history || [])].map((version) => [
+    item.id + '@' + version.version, version.name + ' · v' + version.version
+  ]))];
+}
+function selectedRule(key) {
+  const [id,version] = (key || '').split('@');
+  const entry = byId('rules', id);
+  return entry ? ruleAt(entry, Number(version) || entry.version) : null;
+}
+function editTask(id) {
+  const task = byId('tasks',id);
+  const content = `<form id="edit-task-form" data-form="edit-task" data-id="${id}">
+    ${formError()}
+    ${formRow('任务名称','taskName',inputField('taskName',task.name,'maxlength="80" required'),true)}
+    ${formRow('数据集','editDataset',selectField('editDataset',datasetOptions(task.datasetId),task.datasetId,'required'),true)}
+    ${formRow('规则版本','editRule',selectField('editRule',ruleOptions(task),task.ruleId + '@' + task.ruleVersion,'required'),true)}
+    ${formRow('周期调度','editTime',inputField('editTime',task.schedule?.time || '','type="time"') ,false,'留空将停用定时。已启用的调度保留原周期，新启用默认为每天。')}
+    <p class="hint">保存将生成新的任务配置版本，历史批次继续使用各自的版本。</p>
+    </form>`;
+  openModal('修改任务',content,{ narrow:true, submit:'edit-task-form' });
+}
+
+
+function parseCSV(text) {
+  const records = [];
+  let row = [], field = '', quote = false, closedQuote = false;
+  const line = () => { row.push(field); if (row.some((cell) => cell !== '')) records.push(row); row = []; field = ''; };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (closedQuote && ![',','\r','\n'].includes(c)) throw Error('CSV 引号位置无效。');
+    if (c === '"') {
+      if (quote && text[i + 1] === '"') { field += '"'; i++; }
+      else if (quote) { quote = false; closedQuote = true; }
+      else if (field === '') quote = true;
+      else throw Error('CSV 引号位置无效。');
+    } else if (!quote && c === ',') { closedQuote = false; row.push(field); field = ''; }
+    else if (!quote && (c === '\r' || c === '\n')) {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      closedQuote = false;
+      line();
+    } else field += c;
+  }
+  if (quote) throw Error('CSV 有未闭合的引号。');
+  line();
+  return records;
+}
+function validateGrid(grid) {
+  const [head, ...rows] = grid;
+  if (!head || !rows.length) throw Error('表格至少需要一行表头和一条样本。');
+  const columns = head.map((name) => String(name ?? '').trim());
+  if (columns.length > 25 || rows.length > 500) throw Error('演示支持最多 25 列和 500 条样本。');
+  if (columns.some((name) => !name || ['__proto__', 'constructor', 'prototype'].includes(name))) throw Error('列名须非空，且不能使用保留字段。');
+  if (new Set(columns).size !== columns.length) throw Error('表头有重复列名。');
+  if (rows.some((row) => row.length > columns.length)) throw Error('部分样本的列数超过表头。');
+  if (rows.some((row) => row.some((cell) => String(cell).length > 5000))) throw Error('单元格超过 5,000 字符。');
+  return { columns, rows };
+}
+// Only reads plain stored values from an XLSX workbook.
+async function readWorkbook(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  let end = bytes.length - 22;
+  while (end >= Math.max(0, bytes.length - 65557) && view.getUint32(end,true) !== 0x06054b50) end--;
+  if (end < Math.max(0, bytes.length - 65557)) throw Error('无法读取 Excel 文件结构。');
+  const count = view.getUint16(end+10,true);
+  const map = new Map();
+  let pos = view.getUint32(end+16,true);
+  const decoder = new TextDecoder();
+  for (let i = 0; i < count; i++) {
+    if (view.getUint32(pos,true) !== 0x02014b50) throw Error('Excel 文件目录损坏。');
+    const size = view.getUint32(pos+20,true), plain = view.getUint32(pos+24,true);
+    const nameLen = view.getUint16(pos+28,true), method = view.getUint16(pos+10,true);
+    const start = view.getUint32(pos+42,true);
+    const name = decoder.decode(bytes.subarray(pos+46,pos+46+nameLen));
+    map.set(name,{ start, size, plain, method });
+    pos += 46 + nameLen + view.getUint16(pos+30,true) + view.getUint16(pos+32,true);
+  }
+  const xml = async (name) => {
+    const entry = map.get(name);
+    if (!entry || entry.plain > 5_000_000) throw Error('工作表文件缺失或解压后过大。');
+    const offset = entry.start + 30 + view.getUint16(entry.start+26,true) + view.getUint16(entry.start+28,true);
+    const packed = bytes.subarray(offset, offset + entry.size);
+    if (![0,8].includes(entry.method)) throw Error('Excel 使用了无法识别的压缩方式。');
+    const stream = new Blob([packed]).stream();
+    const reader = (entry.method === 0 ? stream : stream.pipeThrough(new DecompressionStream('deflate-raw'))).getReader();
+    const chunks = [];
+    let length = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > 5_000_000) { await reader.cancel(); throw Error('工作表解压后过大。'); }
+      chunks.push(value);
+    }
+    const doc = new DOMParser().parseFromString(await new Blob(chunks).text(),'application/xml');
+    if (doc.querySelector('parsererror')) throw Error('Excel 工作表 XML 损坏。');
+    return doc;
+  };
+  const workbook = await xml('xl/workbook.xml');
+  const relationships = await xml('xl/_rels/workbook.xml.rels');
+  const strings = map.has('xl/sharedStrings.xml') ? [...(await xml('xl/sharedStrings.xml')).getElementsByTagName('si')].map((node) =>
+    [...node.getElementsByTagName('t')].map((part) => part.textContent).join('')) : [];
+  const sheets = [...workbook.getElementsByTagName('sheet')];
+  if (sheets.length > 20) throw Error('工作簿最多支持 20 个工作表。');
+  const entries = await Promise.all(sheets.map(async (sheet) => {
+    const id = sheet.getAttribute('r:id');
+    const rel = [...relationships.getElementsByTagName('Relationship')].find((element) => element.getAttribute('Id') === id);
+    const target = rel?.getAttribute('Target') || '';
+    const path = target.startsWith('/') ? target.slice(1) : 'xl/' + target;
+    const doc = await xml(path);
+    const formula = doc.getElementsByTagName('f')[0];
+    const rows = [...doc.getElementsByTagName('row')].map((row) => {
+      const result = [];
+      for (const cell of row.getElementsByTagName('c')) {
+        const position = (cell.getAttribute('r') || '').match(/^[A-Z]+/)?.[0] || 'A';
+        const column = [...position].reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+        if (column >= 25) throw Error('工作表超过 25 列。');
+        const value = cell.getElementsByTagName('v')[0]?.textContent ?? '';
+        const type = cell.getAttribute('t');
+        result[column] = type === 's' ? strings[Number(value)] ?? '' : type === 'inlineStr'
+          ? [...cell.getElementsByTagName('t')].map((item) => item.textContent).join('') : value;
+      }
+      return Array.from(result, (cell) => cell ?? '');
+    }).filter((row) => row.some(Boolean));
+    return { name: sheet.getAttribute('name'), rows, formulaCell: formula ? (formula.parentElement?.getAttribute('r') || '未知单元格') : null };
+  }));
+  if (!entries.length) throw Error('Excel 文件没有工作表。');
+  return entries;
+}
+function setImportPreview(form) {
+  const preview = form.querySelector('[data-import-preview]');
+  const sheet = form.querySelector('#sheet').value;
+  try {
+    const selected = form.workbook[Number(sheet)];
+    if (selected.formulaCell) throw Error('所选工作表含公式，请先粘贴为值。单元格 ' + selected.formulaCell);
+    const grid = validateGrid(selected.rows);
+    form.grid = grid;
+    const guessed = grid.columns.find((column) => ['query','question','问题'].includes(column.toLowerCase())) || grid.columns[0];
+    const schema = selectField('queryKey', grid.columns.map((column) => [column,column]), guessed, 'required');
+    preview.innerHTML = formRow('查询字段','queryKey',schema,true) + `<div class="subform"><div class="section-head"><h3>文件预览</h3><span class="hint">${grid.rows.length} 条样本</span></div>${table(grid.columns, grid.rows.slice(0,3).map((row) => grid.columns.map((_,i) => esc(row[i] || '—'))))}</div>`;
+    form.querySelector('[data-error]').hidden = true;
+  } catch (error) {
+    form.grid = null;
+    preview.textContent = '';
+    overlayMessage(form,error.message);
+  }
+}
+function showWorkbook(form, workbook, filename) {
+  form.workbook = workbook;
+  form.filename = filename;
+  const sheet = form.querySelector('#sheet');
+  sheet.innerHTML = workbook.map(({ name },i) => option(i,name,0)).join('');
+  sheet.disabled = workbook.length < 2;
+  form.querySelector('[data-sheet]').hidden = workbook.length < 2;
+  form.querySelector('[data-filename]').textContent = filename;
+  if (!form.querySelector('#datasetName').value) form.querySelector('#datasetName').value = filename.replace(/\.[^.]+$/,'');
+  setImportPreview(form);
+}
+function newDataset(from) {
+  openModal('新建数据集', `<form id="dataset-form" data-form="dataset" data-from="${from}">
+    ${formError()}
+    ${formRow('数据集名称','datasetName',inputField('datasetName','','placeholder="输入数据集名称" maxlength="80" required'),true)}
+    ${formRow('数据来源','source',selectField('source',sources.map((source) => [source,source]),'CSV'),true,'飞书与 SQL 使用本地导出文件。')}
+    ${formRow('本地文件','datasetFile','<input id="datasetFile" name="datasetFile" type="file" accept=".csv,.xlsx"><p class="hint" data-filename>支持 .csv、.xlsx，文件仅在浏览器中读取。</p>' + action('使用示例文件','example-file'),true)}
+    <div data-sheet hidden>${formRow('工作表','sheet',selectField('sheet',[],''),true)}</div>
+    <div data-import-preview></div></form>`,
+    { submit:'dataset-form' });
+}
+function defaultMappings(rule,dataset) {
+  return Object.fromEntries(rule.variables.map((variable) => [
+    variable, dataset?.columns.includes(variable) ? 'dataset:' + variable :
+      variable === 'query' && dataset ? 'dataset:' + dataset.queryKey :
+      variable === 'tool_status' ? 'trace:tool.result.status' : variable === 'answer' ? 'agent:answer' : ''
+  ]));
+}
+function allowedBindings(dataset) {
+  return [
+    ['', '选择输入来源'],
+    ...(dataset?.columns || []).map((column) => ['dataset:' + column, '数据集 · ' + column]),
+    ['agent:answer', 'Agent · 最终回复'],
+    ['trace:tool.result.status', 'Trace · tool.result.status'],
+    ['trace:tool.call.path', 'Trace · tool.call.path']
+  ];
+}
+function mappedValue(binding,sample,row) {
+  if (!binding || !sample) return undefined;
+  if (binding.startsWith('dataset:')) return datasetCell(row,binding.slice(8)) || undefined;
+  if (binding === 'agent:answer') return sample.answer;
+  if (binding === 'trace:tool.result.status' && sample.status !== 'evidence') return sample.i === 0 || sample.i === 4 ? 'success' : 'no_tool_call';
+  if (binding === 'trace:tool.call.path' && (sample.i === 0 || sample.i === 4)) return sample.i === 0 ? 'tests/fixtures/defaults.json' : 'tests/fixtures/regions.json';
+  return undefined;
+}
+function openRuleEditor(from,id) {
+  const rule = byId('rules',id) || makeRule('', '', '');
+  const schema = rule.schema;
+  openModal(id ? '修改评测规则' : '新建评测规则', `<form id="rule-form" data-form="rule" data-id="${id || ''}" data-from="${from}">
+    ${formError()}
+    ${formRow('规则名称','ruleName',inputField('ruleName',rule.name,'placeholder="输入规则名称" maxlength="80" required'),true)}
+    ${formRow('创建方式','ruleMode', selectField('ruleMode',[['manual','手动创建'],['ai','AI 创建（模拟）']],'manual','data-rule-mode') + '<div id="rule-ai" hidden><label for="ruleGoal" class="hint">评估目标</label>' + inputField('ruleGoal','','placeholder="例如：检查工具参数是否正确" maxlength="160"') + ' ' + action('生成草稿','generate-rule') + '</div>')}
+    ${formRow('规则 Prompt','prompt',`<textarea id="prompt" name="prompt" rows="5" required>${esc(id ? rule.prompt : '')}</textarea>`,true,'用 {{变量名}} 声明输入，写明评测标准、评分规则与输出格式。')}
+    ${formRow('总分字段','scorePath',inputField('scorePath',schema.scorePath,'required'),true,'支持嵌套路径。无适用项时允许 null。')}
+    ${formRow('理由字段','reasonPath',inputField('reasonPath',schema.reasonPath,'required'),true)}
+    ${formRow('指标数组路径','metricPath',inputField('metricPath',schema.metricPath,'required'),true)}
+    ${formRow('指标名称键','key',inputField('key',schema.key,'required'),true)}
+    ${formRow('指标取值键','value',inputField('value',schema.value,'required'),true)}
+    ${formRow('指标名称','metrics',inputField('metrics',rule.metrics.join('、'),'required'),true,'用顿号分隔，演示使用 Pass / Fail / NA。')}
+    ${formRow('分数上限','max',inputField('max',schema.max,'type="number" min="0.01" max="10000" step="any" required'),true)}
+    </form>`, { submit:'rule-form', confirm:id ? '发布新版本' : '确认' });
+}
+
+
+function newDraft() {
+  return { step: 0, name: '', scene: '', schedule: null, datasetId: '', ruleKey: '', mappings: {}, preview: '', trial: false };
+}
+function wizardPage() {
+  const draft = state.draft ||= newDraft();
+  const dataset = byId('datasets',draft.datasetId);
+  const rule = selectedRule(draft.ruleKey);
+  const step = draft.step;
+  const steps = stepNames.map((label,i) => `<li class="${i === step ? 'current-step' : i < step ? 'complete-step' : ''}" ${i === step ? 'aria-current="step"' : ''}><span class="step-index">${i + 1}</span><span>${label}</span></li>`).join('');
+  let body;
+  if (step === 0) body = taskFields(draft);
+  if (step === 1) {
+    body = formRow('选择数据集','wizardDataset',`<div class="actions">${selectField('wizardDataset',datasetOptions(draft.datasetId),draft.datasetId,'required data-select-dataset')}${action('新建数据集','new-item','data-kind="datasets" data-from="wizard"')}</div>`,true,
+      '选择数据集后，将自动预览最多 3 条 Agent 样本并生成模拟轨迹。')
+      + formRow('数据集名称','selectedDatasetName',inputField('selectedDatasetName',dataset?.name || '','readonly placeholder="选择后带入名称"'),true)
+      + (dataset ? previewTable(dataset,draft) : '');
+  }
+  if (step === 2) {
+    body = formRow('选择规则','wizardRule', `<div class="actions">${selectField('wizardRule',ruleOptions(),draft.ruleKey,'required data-select-rule')}${action('新建规则','new-item','data-kind="rules" data-from="wizard"')}</div>`,true,'每个任务绑定一条规则的固定版本。')
+      + formRow('规则名称','selectedRuleName',inputField('selectedRuleName',rule?.name || '','readonly placeholder="选择后带入名称"'),true);
+    if (dataset) body += `<section class="block"><div class="section-head"><h2>数据集预览</h2><span class="hint">${esc(dataset.name)} · ${dataset.rows.length} 条</span></div>${table(['样本 ID','Query'],dataset.rows.slice(0,3).map((row) => [esc(row.id),esc(row.query)]))}</section>`;
+    if (rule && dataset) body += mappingSection(rule,dataset,draft);
+  }
+  if (step === 3) {
+    body = pairs([['任务名称',esc(draft.name)], ['评测场景',esc(draft.scene)], ['类型','单轮会话'], ['周期调度',esc(scheduleText(draft.schedule))], ['数据集',esc(dataset?.name || '—') + ' · v' + (dataset?.version || '—')], ['评测规则',esc(rule?.name || '—') + ' · v' + (rule?.version || '—')], ['样本数',dataset?.rows.length || 0]])
+      + `<section class="block"><div class="section-head"><h2>输入映射</h2></div>
+        ${table(['占位符','输入来源'],Object.entries(draft.mappings).map(([key,value]) => [`<code>${esc(key)}</code>`,esc(allowedBindings(dataset).find(([binding]) => binding === value)?.[1] || '—')]))}</section>
+        <section class="block"><div class="section-head"><div><h2>试评分</h2><p class="hint">可选。最多 2 条，复用已预览的 Agent 样本。</p></div>${action(draft.trial === 'loading' ? '试评分中…' : draft.trial ? '重新试运行' : '试运行','trial',draft.trial === 'loading' ? 'disabled' : '')}</div>
+        ${draft.trial === true && dataset && rule ? trialTable(dataset,rule) : ''}</section>`;
+  }
+  return breadcrumb([['评测任务','manage/tasks'],['新建任务']])
+    + titlebar('新建评测任务')
+    + `<ol class="steps" aria-label="任务创建进度">${steps}</ol>
+      <form data-form="wizard">
+        <div class="wizard-body">${formError()}${body}</div>
+        <div class="form-footer">
+          ${action('取消','cancel-draft')}${step > 0 ? action('上一步','prev-step') : ''}
+          <button class="btn primary" type="submit">${step === 3 ? '确认创建' : '下一步'}</button>
+        </div>
+      </form>`;
+}
+function previewTable(dataset,draft) {
+  const subset = dataset.rows.slice(0,3);
+  const ready = draft.preview === 'ready';
+  return `<section class="block"><div class="section-head"><h2>数据集预览</h2><span class="hint">前 ${subset.length} 条 / 共 ${dataset.rows.length} 条</span></div>
+    ${table(['样本 ID','Query','Agent 状态','轨迹'],subset.map((row) => [
+      `<span class="mono">${esc(row.id)}</span>`,esc(row.query),ready ? tag('已完成','good') : tag('预览中','info'),
+      ready ? link('查看轨迹','trace/preview/' + row.id) : '—'
+    ]))}</section>`;
+}
+function mappingSection(rule,dataset,draft) {
+  const row = dataset.rows[0];
+  const sample = draft.preview === 'ready' && row ? makeSample(row,rule,0,'preview') : null;
+  return `<section class="block"><div class="section-head"><div><h2>规则预览与入参映射</h2><p class="hint">使用第一条预览样本 ${esc(row?.id || '')} 取值。</p></div></div>
+    <details><summary>查看规则 Prompt</summary>${pre(rule.prompt)}</details>
+    ${rule.variables.map((variable) => {
+      const binding = draft.mappings[variable];
+      const actual = sample ? mappedValue(binding,sample,row) : undefined;
+      const name = 'map-' + variable;
+      const map = selectField(name,allowedBindings(dataset),binding || '',`data-mapping="${esc(variable)}" required`);
+      const value = actual === undefined ? (sample ? '当前样本暂无取值' : '等待预览') : actual;
+      return formRow('{{' + variable + '}}',name,map + `<p class="hint wrap-any">预览值 <span data-mapped="${esc(variable)}">${esc(value)}</span></p>`,true);
+    }).join('')}
+    <details><summary>查看输出字段与业务 JSON</summary><p class="hint">总分字段 ${esc(rule.schema.scorePath)} · 指标数组 ${esc(rule.schema.metricPath)}</p>${pre(makeJudgment(rule,0).json)}</details>
+    </section>`;
+}
+function selectDataset(id) {
+  const draft = state.draft;
+  if (draft.datasetId === id && draft.preview === 'ready') return;
+  draft.datasetId = id;
+  draft.preview = id ? 'loading' : '';
+  draft.trial = false;
+  if (draft.ruleKey) draft.mappings = defaultMappings(selectedRule(draft.ruleKey), byId('datasets',id));
+  save();
+  render();
+  if (id) startPreview(id);
+}
+function startPreview(id) {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => {
+    if (state.draft?.datasetId !== id || state.draft.preview !== 'loading') return;
+    state.draft.preview = 'ready';
+    save();
+    if (pathParts()[0] === 'wizard' && !activeModal) render();
+  },450);
+}
+function selectRule(key) {
+  const draft = state.draft;
+  draft.ruleKey = key;
+  const rule = selectedRule(key);
+  draft.mappings = rule ? defaultMappings(rule,byId('datasets',draft.datasetId)) : {};
+  draft.trial = false;
+  save();
+  render();
+}
+function trialTable(dataset,rule) {
+  const run = makeRun('trial',{ name:state.draft.name, version:1, mappings:state.draft.mappings },dataset,rule,'试评分','',dataset.rows.slice(0,2));
+  return table(['样本 ID','Query','评分结果','指标','操作'],run.samples.map((sample) => {
+    return [
+      `<span class="mono">${sample.id}</span>`,esc(sample.query),`${statusTag(sample.status)}　${formatScore(sample.score,rule.schema.max)}`,
+      Object.entries(sample.metrics).map(([name,value]) => `<span class="nowrap">${esc(name)} ${statusTag(value)}</span>`).join('　'),
+      `<div class="actions">${linkAction('评分详情','sample',`data-run="trial" data-id="${sample.id}"`)}${link('查看轨迹','trace/trial/' + sample.id)}</div>`
+    ];
+  }));
+}
+
+
+function runById(id) {
+  if (id === 'preview' || id === 'trial') {
+    const draft = state.draft;
+    const dataset = draft && byId('datasets',draft.datasetId);
+    const rule = (draft && selectedRule(draft.ruleKey)) || state.rules[0];
+    if (!dataset) return null;
+    return makeRun(id,{ name: draft.name, version: 1, mappings:draft.mappings },dataset,rule,id === 'preview' ? '样本预览' : '试评分','',dataset.rows.slice(0,id === 'preview' ? 3 : 2));
+  }
+  return state.runs.find((run) => run.id === id);
+}
+function metricFilter(name,status) {
+  return `data-name="${esc(name)}" data-status="${esc(status)}"`;
+}
+function tally(run,metric) {
+  const values = run.samples.map((sample) => sample.metrics[metric]);
+  return Object.fromEntries(Object.keys(labels).slice(0,3).map((value) => [value,values.filter((item) => item === value).length]));
+}
+function stat(label,value,note) {
+  return `<div class="stat"><span class="stat-label">${esc(label)}</span><strong class="stat-value">${esc(value)}</strong><span class="hint small">${esc(note)}</span></div>`;
+}
+function resultPage(id) {
+  const run = runById(id);
+  if (!run || !run.taskId) return notFound();
+  const rollup = batchResult(run);
+  const settings = resultSettings[id] ||= { page:1, values:{} };
+  const f = settings.values;
+  const max = run.rule.schema.max;
+  const scale = max === 1 ? 100 : 1;
+  const matched = run.samples.filter((sample) => {
+    const comparisons = [
+      ['from',sample.score == null ? null : sample.score * scale, (a,b) => a >= b],
+      ['to',sample.score == null ? null : sample.score * scale, (a,b) => a <= b],
+      ['elapsedMin',sample.elapsed, (a,b) => a >= b], ['elapsedMax',sample.elapsed, (a,b) => a <= b],
+      ['tokensMin',sample.tokens, (a,b) => a >= b], ['tokensMax',sample.tokens, (a,b) => a <= b]
+    ];
+    return (!f.status || sample.status === f.status)
+      && (!f.metric || !f.value || sample.metrics[f.metric] === f.value)
+      && comparisons.every(([field,value,test]) => !f[field] || (value != null && test(value,Number(f[field]))));
+  });
+  const page = settings.page = Math.min(Math.max(1,Math.ceil(matched.length / pageSize)),settings.page);
+  const metrics = run.rule.metrics.map((name) => {
+    const count = tally(run,name);
+    const effective = count.Pass + count.Fail;
+    return [esc(name),effective ? `<strong class="num">${formatScore(count.Pass / effective,1)}</strong>` : '<span class="hint">无适用样本</span>',
+      `<span class="num">${count.Pass} / ${effective}</span>`,
+      ...['Pass','Fail','NA'].map((status) => count[status]
+        ? `<span class="metric-count">${linkAction(String(count[status]),'metric',metricFilter(name,status))}</span>`
+        : '<span class="subtle">0</span>')];
+  });
+  const rows = matched.slice((page - 1) * pageSize,page * pageSize).map((sample) => [
+    link(sample.id,'run/' + id + '/' + sample.id,'mono'),
+    `<div class="ellipsis" title="${esc(sample.query)}">${esc(sample.query)}</div><div class="hint ellipsis small" title="${esc(sample.answer)}">${esc(sample.answer)}</div>`,
+    (sample.status === 'waiting' || sample.status === 'canceled') ? '—' : tag('Agent 已结束'),
+    statusTag(sample.status),
+    `<strong class="num nowrap">${sample.status === 'na' ? '—' : formatScore(sample.score,max)}</strong>`,
+    f.metric ? (sample.metrics[f.metric] ? statusTag(sample.metrics[f.metric]) : '—') : '',
+    `<span class="num nowrap">${sample.status === 'waiting' || sample.status === 'canceled' ? '—' : sample.elapsed + ' ms'}</span>`,
+    `<span class="num">${sample.status === 'waiting' || sample.status === 'canceled' ? '—' : sample.tokens}</span>`,
+    `<div class="actions">${link('详情','run/' + id + '/' + sample.id)}${!['waiting','canceled'].includes(sample.status) ? link('轨迹','trace/' + id + '/' + sample.id) : ''}</div>`
+  ].filter((_,index) => index !== 5 || f.metric));
+  const running = run.phase === 'running';
+  const amount = rollup.total - rollup.waiting;
+  return breadcrumb([['评测任务','manage/tasks'],[run.taskName,'task/' + run.taskId],['批次结果']])
+    + titlebar('评测结果',run.taskName + ' · ' + run.id, action('刷新结果','refresh-run') + (running ? action('取消本批','confirm-cancel-run',`data-run="${id}"`) : ''))
+    + pairs([
+      ['任务 ID',esc(run.taskId) + ' · v' + run.taskVersion],['触发时间',esc(run.date)],['运行状态',runStatus(run)], ['触发方式',esc(run.trigger)],
+      ['数据集',esc(run.dataset.name) + ' · v' + run.dataset.version],['评测规则',esc(run.rule.name) + ' · v' + run.rule.version],
+      ['完成进度',`<span class="num">${amount} / ${rollup.total}</span>`]
+    ])
+    + `<section class="block"><div class="section-head"><h2>批次概览</h2><span class="hint">${running ? '运行中 · 截至当前' : '整批统计'}</span></div>
+      <div class="scores">
+      ${stat('样本均分',formatScore(rollup.mean,max),rollup.scored + ' 条有数值总分')}
+      ${stat('样本总数',rollup.total,'等待 ' + rollup.waiting + ' · 取消 ' + rollup.canceled)}
+      ${stat('已评分',rollup.scored,'含有效的 0 分')}
+      ${stat('无适用项',rollup.na,'全 NA，不计入均分')}
+      ${stat('评分失败',rollup.fail,'其中证据缺失 ' + rollup.evidence)}
+      </div></section>
+      <section class="block"><div class="section-head"><h2>指标汇总</h2><span class="hint">点击 Pass、Fail 或 NA 的计数筛选样本</span></div>
+        ${table(['指标名称','通过率','通过 / 有效','Pass','Fail','NA'],metrics)}</section>
+      <section class="block" id="sample-list"><div class="section-head"><h2>样本明细</h2>${f.metric ? tag(f.metric + (f.value ? ' · ' + f.value : ''),'info') : ''}</div>
+        <form class="filters" data-form="results" data-id="${id}">
+          <label>评分状态${selectField('status',[['','全部'],...Object.entries(labels).slice(3)],f.status || '')}</label>
+          <label>指标${selectField('metric',[['','全部指标'],...run.rule.metrics.map((name) => [name,name])],f.metric || '')}</label>
+          <label>指标取值${selectField('value',[['','全部取值'],...['Pass','Fail','NA'].map((value) => [value,value])],f.value || '')}</label>
+          <label>总分下限${inputField('from',f.from,`type="number" step="any" min="0" max="${max * scale}" placeholder="${max === 1 ? '百分比' : '分数'}"`)}</label>
+          <label>总分上限${inputField('to',f.to,`type="number" step="any" min="0" max="${max * scale}" placeholder="${max === 1 ? '百分比' : '分数'}"`)}</label>
+          <button class="btn" type="submit">筛选</button>${action('清除','reset-results',`data-id="${id}"`)}
+          <details ${['elapsedMin','elapsedMax','tokensMin','tokensMax'].some((field) => f[field]) ? 'open' : ''}><summary>耗时与 Token</summary>
+            <div class="actions">
+              <label>耗时下限 (ms)${inputField('elapsedMin',f.elapsedMin,'type="number" min="0"')}</label>
+              <label>耗时上限 (ms)${inputField('elapsedMax',f.elapsedMax,'type="number" min="0"')}</label>
+              <label>Token 下限${inputField('tokensMin',f.tokensMin,'type="number" min="0"')}</label>
+              <label>Token 上限${inputField('tokensMax',f.tokensMax,'type="number" min="0"')}</label>
+            </div></details>
+        </form>
+        ${table(['样本 ID','Query / 回答摘要','执行状态','评分状态','总分',...(f.metric ? [f.metric] : []),'耗时','Token','操作'],rows,'没有符合筛选条件的样本。')}
+        ${pager(matched.length,page,'run:' + id)}
+      </section>`;
+}
+function openSample(runId,id) {
+  const run = runById(runId);
+  const sample = run?.samples.find((item) => item.id === id);
+  if (!sample) return;
+  const score = sample.status === 'na' ? '无适用项' : formatScore(sample.score,run.rule.schema.max);
+  const tracePath = 'trace/' + runId + '/' + sample.id;
+  const metrics = run.rule.metrics.map((name) => [
+    esc(name), sample.metrics[name] ? statusTag(sample.metrics[name]) : '—',
+    sample.i === 0 && name === dimensions[2] && sample.metrics[name] === 'Fail' ? link('核对工具参数',tracePath + '/tree/tool') : '—'
+  ]);
+  openModal(runId === 'trial' ? '试评分详情 · ' + id : '样本详情 · ' + id,
+    pairs([['评分状态',statusTag(sample.status)],['样本总分',esc(score)],['规则版本','v' + run.rule.version],['执行耗时',sample.elapsed == null ? '—' : sample.elapsed + ' ms']])
+    + `<div class="block stack"><h3>Query</h3><p class="wrap-any">${esc(sample.query)}</p><h3>Agent 回答</h3><p class="wrap-any">${esc(['waiting','canceled'].includes(sample.status) ? '暂无回答。' : sample.answer)}</p>
+      ${sample.error ? notice(sample.error,true) : ''}
+      ${sample.reason ? `<h3>评分理由</h3><p>${esc(sample.reason)}</p>` : ''}
+      <h3>指标判定</h3>${table(['指标','判定','证据'],metrics)}
+      ${sample.inputs ? `<details><summary>本次评分入参</summary>${pre(sample.inputs)}</details>` : ''}
+      ${sample.json || sample.raw ? `<details><summary>${sample.raw ? '同次裁判原始响应' : '完整业务 JSON'}</summary>${pre(sample.raw || sample.json)}</details>` : ''}
+      ${!['waiting','canceled'].includes(sample.status) ? `<div class="actions">${link('查看 Agent Trace',tracePath,'btn')}${sample.status !== 'evidence' ? link('查看裁判 Trace',tracePath + '/judge','btn') : ''}</div>` : ''}</div>`);
+}
+function traceNodes(sample,judge) {
+  if (judge) return [
+    { key:'root', name:'Prompt Evaluator', type:'裁判', step:0, ms:960, input:{ query:sample.query, answer:sample.answer }, output:{ status:labels[sample.status] }, failed:sample.status === 'invalid' },
+    { key:'score', name:'评估模型调用', type:'模型', step:1, ms:912, input:{ judge:'演示裁判', query:sample.query }, output:sample.raw || sample.json, failed:sample.status === 'invalid' }
+  ];
+  const base = [
+    { key:'root',name:'DeepSeek Harness',type:'Agent',step:0,ms:sample.elapsed,input:{ query:sample.query },output:{ answer:sample.answer } },
+    { key:'input',name:'用户输入',type:'输入',step:0,ms:0,input:{ query:sample.query } },
+    { key:'model-1',name:'模型调用',type:'模型',step:1,ms:Math.round(sample.elapsed * .43),input:{ model:'DeepSeek · 演示' },output:{ message:sample.i === 0 || sample.i === 4 ? '调用只读测试工具。' : '生成回复。' } }
+  ];
+  if (sample.i === 0 || sample.i === 4) {
+    const path = sample.i === 0 ? 'tests/fixtures/defaults.json' : 'tests/fixtures/regions.json';
+    base.push({ key:'tool',name:'read_fixture',type:'测试工具',step:1,ms:48,input:{ path },output:sample.i === 0 ? { status:'success', retry_limit:3 } : { status:'success', regions:['cn','sg'] } },
+      { key:'model-2',name:'模型调用 · 生成最终回复',type:'模型',step:2,ms:Math.round(sample.elapsed * .4),input:{ tool_result:'已接收工具回执' },output:{ message:sample.answer } });
+  }
+  if (sample.status === 'evidence') base.push({ key:'tool-missing',name:'工具记录缺失',type:'采集',step:1,ms:0,failed:true,output:{ error:'工具事件未写入 Trace' } });
+  base.push({ key:'final',name:'最终回复',type:'输出',step:0,ms:0,output:{ answer:sample.answer } });
+  return base;
+}
+function tracePage(runId,id,requested,key) {
+  const run = runById(runId);
+  const sample = run?.samples.find((item) => item.id === id);
+  if (!sample || ['waiting','canceled'].includes(sample.status)) return notFound('这条样本暂无可用轨迹。');
+  const isDraft = runId === 'preview' || runId === 'trial';
+  const modes = [['tree','Trace'],['loop','Agent Loop'],['trajectory','Trajectory'], ...(runId !== 'preview' && sample.status !== 'evidence' ? [['judge','裁判 Trace']] : [])];
+  const mode = modes.some(([name]) => name === requested) ? requested : 'tree';
+  const nodes = traceNodes(sample,mode === 'judge');
+  const cacheKey = runId + '/' + id;
+  const path = 'trace/' + cacheKey;
+  const browser = nodes.filter((node) => mode !== 'trajectory' || node.key !== 'root');
+  const selected = browser.find((node) => node.key === key) || browser.find((node) => node.key === traceSettings[cacheKey]) || browser[0];
+  if (mode !== 'judge') traceSettings[cacheKey] = selected.key;
+  const row = (node,depth = 0) => `<a class="span-row${node.key === selected.key ? ' selected' : ''}" href="#/${path}/${mode}/${node.key}" style="padding-left:${11 + 15 * depth}px" ${node.key === selected.key ? 'aria-current="true"' : ''}>
+    <span><span class="span-name">${esc(node.name)}</span><span class="hint small">${esc(node.type)}${node.failed ? ' · 异常' : ''}</span>
+    ${node.ms && mode === 'tree' ? `<span class="elapsed" style="display:block;width:${Math.max(4,Math.min(100,node.ms / nodes[0].ms * 100))}%"></span>` : ''}</span><span class="trace-time">${node.ms} ms</span></a>`;
+  let tree = browser.map((node) => row(node,mode === 'tree' && node.key !== 'root' ? (node.type === '测试工具' ? 2 : 1) : 0)).join('');
+  if (mode === 'loop') {
+    const steps = [...new Set(browser.map((node) => node.step).filter(Boolean))];
+    tree = row(nodes[0]) + steps.map((step) => `<div class="group-label">Turn 1 · Step ${step}</div>${browser.filter((node) => node.step === step).map((node) => row(node,1)).join('')}`).join('') + row(nodes.at(-1));
+  }
+  const navigation = isDraft ? [['评测任务','manage/tasks'],['新建任务','wizard'],[id]]
+    : [['评测任务','manage/tasks'],[run.taskName,'task/' + run.taskId],['批次结果','run/' + runId],[id]];
+  return breadcrumb(navigation)
+    + titlebar(mode === 'judge' ? '裁判轨迹' : '查看轨迹',`${id} · ${isDraft ? run.trigger : run.id}`,link(isDraft ? '返回创建向导' : '返回样本详情',isDraft ? 'wizard' : 'run/' + runId + '/' + id,'btn'))
+    + pairs([
+      ['Trace ID',`<span class="mono">tr_${esc(runId.toLowerCase())}_${esc(id.toLowerCase())}${mode === 'judge' ? '_judge' : ''}</span>`],
+      ['状态',mode === 'judge' ? statusTag(sample.status) : sample.status === 'evidence' ? tag('部分缺失','warn') : tag('已采集','good')],
+      ['总耗时',nodes[0].ms + ' ms'],['Token',mode === 'judge' ? '—' : sample.tokens]
+    ])
+    + `<div class="block"><nav class="tabs" aria-label="轨迹视图">${modes.map(([view,title]) => `<a class="tab${mode === view ? ' active' : ''}" href="#/${path}/${view}"${mode === view ? ' aria-current="page"' : ''}>${title}</a>`).join('')}</nav>
+      ${sample.status === 'evidence' ? notice('该样本的工具执行记录不完整，仍可查看已持久化的步骤。') : ''}
+      <div class="trace-grid"><div class="trace-list"><div class="trace-list-heading">${mode === 'loop' ? '轮次与步骤' : mode === 'trajectory' ? '事件序列' : '调用链'}</div><div class="${mode === 'trajectory' ? 'timeline' : ''}">${tree}</div></div>
+      <section class="span-detail stack" aria-label="节点详情"><div class="section-head"><h2>${esc(selected.name)}</h2>${selected.failed ? tag('异常','bad') : tag('完成','good')}</div>
+        ${pairs([['类型',esc(selected.type)],['Span ID',esc(selected.key)],['耗时',selected.ms + ' ms'],['所属轮次',selected.step ? 'Turn 1 · Step ' + selected.step : '—']])}
+        ${selected.input ? `<h3>${selected.type === '测试工具' ? '实际工具参数' : '输入'}</h3>${pre(selected.input)}` : ''}
+        ${selected.output ? `<h3>${selected.type === '测试工具' ? '工具回执' : '输出'}</h3>${pre(selected.output)}` : ''}
+        ${mode !== 'tree' && mode !== 'judge' ? link('在 Trace 中定位此节点',path + '/tree/' + selected.key) : ''}
+      </section></div></div>`;
+}
+
+
+function startRun(task) {
+  if (!task || task.archived || state.runs.some((run) => run.taskId === task.id && run.phase === 'running')) return;
+  const dataset = byId('datasets',task.datasetId);
+  const rule = ruleAt(byId('rules',task.ruleId),task.ruleVersion);
+  const id = nextId('runs');
+  const run = makeRun(id,task,dataset,rule,'手动',stamp());
+  const target = clone(run.samples);
+  run.phase = 'running';
+  run.samples = run.samples.map(({ id,query,i,runId }) => ({ id,query,i,runId, status:'waiting', score:null, metrics:{} }));
+  state.runs.push(run);
+  save();
+  go('run/' + id);
+  const timer = setInterval(() => {
+    const index = run.samples.findIndex((sample) => sample.status === 'waiting');
+    if (index >= 0 && run.phase === 'running') run.samples[index] = target[index];
+    if (index === target.length - 1 || index < 0 || run.phase !== 'running') {
+      if (run.phase === 'running') run.phase = 'done';
+      clearInterval(timer);
+      loadingRuns.delete(id);
+    }
+    save();
+    const [page,selected,detail] = pathParts();
+    if (!activeModal && ((page === 'run' && selected === id && !detail) || (page === 'task' && selected === task.id))) render();
+  },680);
+  loadingRuns.set(id,timer);
+}
+function cancelRun(run) {
+  if (run?.phase !== 'running') return;
+  clearInterval(loadingRuns.get(run.id));
+  loadingRuns.delete(run.id);
+  run.phase = 'canceled';
+  for (const sample of run.samples) if (sample.status === 'waiting') sample.status = 'canceled';
+  save();
+  render();
+  toast('已取消本批剩余样本');
+}
+function applyWizard(form) {
+  const draft = state.draft;
+  const dataset = byId('datasets',draft.datasetId);
+  const rule = selectedRule(draft.ruleKey);
+  if (draft.step === 0) {
+    const conf = fieldConfig(form);
+    if (!conf.name || !conf.scene || (conf.schedule && !conf.schedule.time)) return overlayMessage(form,'请填写任务名称、评测场景与启用后的执行时间。');
+    Object.assign(draft,conf);
+  }
+  if (draft.step === 1 && (!dataset || dataset.archived)) return overlayMessage(form,'请选择或新建有效的数据集。');
+  if (draft.step === 2) {
+    if (!rule) return overlayMessage(form,'请选择或新建评测规则。');
+    const allowed = allowedBindings(dataset).map(([binding]) => binding);
+    if (rule.variables.some((key) => !draft.mappings[key] || !allowed.includes(draft.mappings[key]))) return overlayMessage(form,'请选择所有必需占位符的输入来源。');
+  }
+  if (draft.step === 3) {
+    if (!dataset || !rule || dataset.archived || byId('rules',rule.id).archived) {
+      return overlayMessage(form,'数据集或规则已不可用，请返回并重新选择。');
+    }
+    const task = allocateEntry('tasks',{
+      name:draft.name, scene:draft.scene, schedule:draft.schedule, datasetId:dataset.id, ruleId:rule.id,
+      ruleVersion:rule.version, mappings:draft.mappings, version:1
+    });
+    state.tasks.push(task);
+    state.draft = null;
+    save();
+    go('task/' + task.id);
+    toast('任务已创建');
+    return;
+  }
+  draft.step++;
+  save();
+  render();
+  app.querySelector('h1')?.scrollIntoView({ block:'nearest' });
+}
+function parseRule(form) {
+  const data = new FormData(form);
+  const val = (name) => String(data.get(name) || '').trim();
+  const ruleName = val('ruleName');
+  const prompt = val('prompt');
+  const variables = [...new Set([...prompt.matchAll(/\{\{\s*([\w\u4e00-\u9fff]+)\s*\}\}/g)].map((match) => match[1]))];
+  const metrics = Array.from(new Set(val('metrics').split(/[、\n,，]/).map((name) => name.trim()).filter(Boolean)));
+  if (!ruleName || !prompt || !variables.length || !metrics.length) throw Error('规则名称、Prompt、至少一个 {{占位符}} 和一个指标为必填。');
+  const schema = Object.fromEntries(['scorePath','reasonPath','metricPath','key','value'].map((key) => [key,val(key)]));
+  schema.max = Number(val('max'));
+  const paths = [schema.scorePath,schema.reasonPath,schema.metricPath];
+  const safe = (key) => /^[\w\u4e00-\u9fff-]+$/u.test(key) && !['__proto__','constructor','prototype'].includes(key);
+  if (paths.some((path) => !path.split('.').every(safe)) || !safe(schema.key) || !safe(schema.value) || schema.key === schema.value) {
+    throw Error('请填写合法的点分隔路径及不同的指标名称键、取值键。');
+  }
+  if (paths.some((item,i) => paths.some((other,j) => i !== j && (item === other || other.startsWith(item + '.')))) ||
+      paths.some((path) => path === 'redline_fail_hits' || path.startsWith('redline_fail_hits.'))) {
+    throw Error('总分、理由和指标数组路径须相互独立，且避开保留字段 redline_fail_hits。');
+  }
+  return { name:ruleName, prompt, variables, metrics, schema };
+}
+function submitForm(event) {
+  const form = event.target;
+  if (!form.dataset.form) return;
+  event.preventDefault();
+  const data = new FormData(form);
+  const { kind,id,from } = form.dataset;
+  const type = form.dataset.form;
+  if (type === 'wizard') return applyWizard(form);
+  if (type === 'manage') {
+    const filters = Object.fromEntries(data);
+    if (filters.from && filters.to && filters.from > filters.to) {
+      form.elements.namedItem('to').focus();
+      return toast('创建止日不能早于创建起日');
+    }
+    manageSettings[kind] = { page:1, filters };
+    return render();
+  }
+  if (type === 'results') {
+    resultSettings[id] = { page:1, values:Object.fromEntries(data) };
+    return render();
+  }
+  if (type === 'dataset') {
+    const name = String(data.get('datasetName') || '').trim();
+    const key = data.get('queryKey');
+    if (!name || !form.grid || !key) return overlayMessage(form,'请填写名称、读取文件，并选择查询字段。');
+    const index = form.grid.columns.indexOf(key);
+    const invalid = form.grid.rows.findIndex((row) => !String(row[index] || '').trim());
+    if (invalid !== -1) return overlayMessage(form,'第 ' + (invalid + 1) + ' 条样本的查询字段为空。请选择其他列或修正文件。');
+    const rows = form.grid.rows.map((row,i) => {
+      const result = Object.fromEntries(form.grid.columns.map((column,index) => [column,row[index] || '']));
+      return { fields:result, query:result[key], expected:result.expected, id:'CASE-' + String(i + 1).padStart(3,'0') };
+    });
+    const dataset = allocateEntry('datasets',{ name, filename:form.filename, source:data.get('source'), queryKey:key, columns:form.grid.columns, version:1, rows });
+    state.datasets.push(dataset);
+    closeModal(false);
+    if (from === 'wizard') selectDataset(dataset.id); else { save(); render(); }
+    return toast('数据集已创建');
+  }
+  if (type === 'rule') {
+    try {
+      const fields = parseRule(form);
+      const previous = id ? byId('rules',id) : null;
+      const record = previous || allocateEntry('rules',{ version:1, history:[] });
+      if (previous) {
+        const { history, ...snapshot } = clone(previous);
+        record.history.unshift(snapshot);
+        record.version++;
+      } else state.rules.push(record);
+      Object.assign(record,fields);
+      closeModal(false);
+      if (from === 'wizard') selectRule(record.id + '@' + record.version);
+      else { save(); render(); }
+      toast(previous ? '规则新版本已发布' : '规则已创建');
+    } catch(error) { overlayMessage(form,error.message); }
+    return;
+  }
+  if (type === 'edit-task') {
+    const task = byId('tasks',id), dataset = byId('datasets',data.get('editDataset')), rule = selectedRule(data.get('editRule'));
+    const name = String(data.get('taskName') || '').trim();
+    if (!name || !dataset || !rule) return overlayMessage(form,'请填写任务名称并选择数据集和规则。');
+    const mappings = task.datasetId === dataset.id && task.ruleId === rule.id && task.ruleVersion === rule.version
+      ? task.mappings : defaultMappings(rule,dataset);
+    if (rule.variables.some((key) => !mappings[key])) return overlayMessage(form,'新配置有未映射变量，需要通过创建向导设置字段映射。');
+    const time = data.get('editTime');
+    Object.assign(task,{
+      name,datasetId:dataset.id,ruleId:rule.id,ruleVersion:rule.version,mappings,version:task.version + 1,
+      schedule:time ? { frequency:task.schedule?.frequency || '每天', day:task.schedule?.day || '周一', time } : null
+    });
+    save(); closeModal(false); render(); toast('任务配置已保存');
+  }
+}
+function handleClick(event) {
+  const button = event.target.closest('[data-action]');
+  if (!button || button.disabled) return;
+  const { action:name, id, kind, from, run, page, group, status } = button.dataset;
+  if (name === 'close') {
+    const [type,runId,sampleId] = pathParts();
+    if (type === 'run' && sampleId) go('run/' + runId);
+    else closeModal();
+  }
+  if (name === 'reset-manage') { delete manageSettings[kind]; render(); }
+  if (name === 'reset-results') { delete resultSettings[id]; render(); }
+  if (name === 'copy') copyEntry(kind,id);
+  if (name === 'delete') confirmArchive(kind,id);
+  if (name === 'archive') {
+    const entry = byId(kind,id);
+    entry.archived = true;
+    if (kind === 'tasks') entry.schedule = null;
+    save(); closeModal(false); render(); toast('已归档');
+  }
+  if (name === 'edit') kind === 'tasks' ? editTask(id) : openRuleEditor('',id);
+  if (name === 'new-item') kind === 'datasets' ? newDataset(from || 'manage') : openRuleEditor(from || 'manage');
+  if (name === 'page') {
+    const [type,key] = group.split(':');
+    (type === 'manage' ? manageSettings : resultSettings)[key].page = Number(page);
+    render();
+  }
+  if (name === 'example-file') {
+    const form = button.closest('form');
+    const type = form.querySelector('#source').value;
+    const filename = 'Harness-过程质量示例' + (type === 'Excel' || type === '飞书表格导出' ? '.xlsx' : '.csv');
+    form.querySelector('#datasetFile').value = '';
+    showWorkbook(form,[{ name:'评测样本',rows:[['query','expected'],...queries] }],filename);
+  }
+  if (name === 'generate-rule') {
+    const form = button.closest('form');
+    const goal = form.querySelector('#ruleGoal').value.trim();
+    if (!goal) return overlayMessage(form,'请先填写评估目标。');
+    form.querySelector('[data-error]').hidden = true;
+    form.querySelector('#ruleName').value ||= goal.slice(0,80);
+    form.querySelector('#prompt').value = '评估目标：' + goal + '。\n\n' + defaultPrompt;
+    toast('已生成可编辑的模拟草稿');
+  }
+  if (name === 'cancel-draft') {
+    openModal('取消创建任务', '<p>确认放弃当前任务草稿？已创建的数据集和规则仍可在管理页使用。</p>',{
+      dialog:true, footer:action('放弃草稿','discard-draft','','primary')
+    });
+  }
+  if (name === 'discard-draft') { state.draft = null; save(); go('manage/tasks'); }
+  if (name === 'prev-step') { state.draft.step--; save(); render(); }
+  if (name === 'trial') {
+    const draft = state.draft;
+    const dataset = byId('datasets',draft.datasetId);
+    const rule = selectedRule(draft.ruleKey);
+    if (!dataset || !rule) return;
+    draft.trial = 'loading';
+    save();
+    render();
+    clearTimeout(trialTimer);
+    trialTimer = setTimeout(() => {
+      if (state.draft === draft && draft.trial === 'loading') {
+        draft.trial = true; save();
+        if (pathParts()[0] === 'wizard' && !activeModal) render();
+      }
+    },550);
+  }
+  if (name === 'sample') openSample(run,id);
+  if (name === 'run') startRun(byId('tasks',id));
+  if (name === 'disable-schedule') {
+    const task = byId('tasks',id);
+    task.schedule = null; task.version++; save(); render(); toast('已停用定时');
+  }
+  if (name === 'refresh-run') { render(); toast('结果已刷新'); }
+  if (name === 'confirm-cancel-run') {
+    openModal('取消本批', '<p>停止尚未执行的样本，保留已完成的结果。本操作只作用于当前批次。</p>',{
+      dialog:true, footer:action('确认取消本批','cancel-run',`data-run="${run}"`,'primary')
+    });
+  }
+  if (name === 'cancel-run') cancelRun(runById(run));
+  if (name === 'metric') {
+    const [,id] = pathParts();
+    resultSettings[id] = { page:1, values:{ metric:button.dataset.name, value:status } };
+    render();
+    document.querySelector('#sample-list')?.scrollIntoView({ block:'start' });
+  }
+}
+async function handleChange(event) {
+  const field = event.target;
+  if (field.dataset.reveal) document.getElementById(field.dataset.reveal).hidden = !field.checked;
+  if ('frequency' in field.dataset) document.getElementById('day').hidden = field.value !== '每周';
+  if ('selectDataset' in field.dataset) return selectDataset(field.value);
+  if ('selectRule' in field.dataset) return selectRule(field.value);
+  if ('ruleMode' in field.dataset) document.getElementById('rule-ai').hidden = field.value !== 'ai';
+  if (field.dataset.mapping) {
+    const draft = state.draft, dataset = byId('datasets',draft.datasetId), rule = selectedRule(draft.ruleKey);
+    const row = dataset.rows[0];
+    draft.mappings[field.dataset.mapping] = field.value;
+    draft.trial = false;
+    const actual = draft.preview === 'ready' ? mappedValue(field.value,makeSample(row,rule,0,'preview'),row) : undefined;
+    const display = field.closest('.field').querySelector('[data-mapped]');
+    display.textContent = actual ?? (draft.preview === 'ready' ? '当前样本暂无取值' : '等待预览');
+    save();
+  }
+  if (field.id === 'sheet') setImportPreview(field.form);
+  if (field.id !== 'datasetFile' || !field.files[0]) return;
+  const [file] = field.files;
+  const form = field.form;
+  form.grid = null;
+  form.querySelector('[data-import-preview]').textContent = '';
+  form.querySelector('[data-sheet]').hidden = true;
+  form.querySelector('[data-filename]').textContent = '读取中…';
+  try {
+    if (file.size > 5_000_000) throw Error('文件大小超过 5 MB。');
+    const ext = file.name.split('.').at(-1).toLowerCase();
+    if (!['csv','xlsx'].includes(ext)) throw Error('请选择 .csv 或 .xlsx 文件。');
+    const workbook = ext === 'xlsx' ? await readWorkbook(file)
+      : [{ name:'CSV', rows:parseCSV(await file.text()) }];
+    if (form.isConnected && field.files[0] === file) showWorkbook(form,workbook,file.name);
+  } catch(error) {
+    if (form.isConnected && field.files[0] === file) {
+      form.querySelector('[data-filename]').textContent = file.name;
+      overlayMessage(form,error.message || '文件读取失败。');
+    }
+  }
+}
+document.addEventListener('click',handleClick);
+document.addEventListener('submit',submitForm);
+document.addEventListener('change',handleChange);
+document.addEventListener('input',(event) => {
+  const form = event.target.form;
+  if (form?.dataset.form === 'wizard' && state.draft?.step === 0) {
+    Object.assign(state.draft,fieldConfig(form));
+    save();
+  }
+});
+document.addEventListener('keydown',(event) => {
+  if (!activeModal) return;
+  if (event.key === 'Escape') overlay.querySelector('.overlay-head button')?.click();
+  if (event.key === 'Tab') {
+    const focusable = [...overlay.querySelectorAll('a[href], button, input, select, textarea, summary')].filter((item) => !item.disabled && item.getClientRects().length);
+    const [first] = focusable, last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+});
+window.addEventListener('hashchange',render);
+window.addEventListener('popstate',(event) => { if (event.state) render(); });
+if (state.draft?.preview === 'loading') startPreview(state.draft.datasetId);
+if (state.draft?.trial === 'loading') state.draft.trial = false;
+for (const run of state.runs) {
+  if (run.phase === 'running') {
+    run.phase = 'canceled';
+    for (const sample of run.samples) if (sample.status === 'waiting') sample.status = 'canceled';
+  }
+}
+save();
+render();
+</script>
+</body>
+</html>
+

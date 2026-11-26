@@ -1,0 +1,28 @@
+# 两份上游源码为独立 checkout，版本单独管理，不纳入平台仓库
+upstream/
+
+# 本机运行凭据与临时文件
+.env
+.env.*
+!.env.example
+*.local
+*.tmp
+
+# 本机系统文件
+.DS_Store
+Thumbs.db
+
+# 平台内部记忆与自动化执行记录
+.workbuddy/
+
+# 后续若引入包管理器依赖，不入库
+node_modules/
+
+# 本机 SQLite 运行数据与临时日志
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal

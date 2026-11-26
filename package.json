@@ -1,0 +1,21 @@
+{
+  "name": "coze-loop-eval-platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "start": "node --env-file-if-exists=.env src/storage/postgres/cli.ts serve",
+    "db:migrate": "node --env-file-if-exists=.env src/storage/postgres/cli.ts migrate",
+    "session:create": "node --env-file-if-exists=.env src/storage/postgres/cli.ts session",
+    "test:postgres": "node --env-file-if-exists=.env --test tests/postgres.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.21",
+    "@types/pg": "8.23.1",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "pg": "8.23.1"
+  }
+}
